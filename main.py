@@ -3,9 +3,10 @@ os.environ['FOR_DISABLE_CONSOLE_CTRL_HANDLER'] = '1'
 
 import numpy as np
 import matplotlib.pyplot as plt
+import pywt
 
 from .read import read_pos
-from .prepare import bin_data, limit_bins, zero_extend
+from .prepare import bin_data, limit_bins, zero_extend, cap_bins
 from .algs import estimate_baseline, find_peaks
 
 from scipy.signal import gaussian, savgol_filter, convolve
@@ -17,15 +18,18 @@ def read(file):
     data = read_pos(file)
     
     print("Binning data...");
-    bins, width = bin_data(data['m'], 0.01)
+    bins, width = bin_data(data['m'], 0.002)
     bins = zero_extend(bins, width)
+    
+    print("Capping data until 100...")
+    bins = cap_bins(bins, 0, 100) 
     
     return bins, width
 
 def prepare(bins, width):    
     print("Baseline removal...")
-    baseline = estimate_baseline(bins, width, window=25, max_baseline=100)
-    bins['height'] = bins['height']-baseline
+    #baseline = estimate_baseline(bins, width, window=25, max_baseline=100)
+    #bins['height'] = bins['height']-baseline
     
     print("Smoothing...")
     gauss = gaussian(51, std=15, sym=True)
@@ -38,21 +42,25 @@ def prepare(bins, width):
 
 def run(bins, width):
     print("Finding peaks...");
-    peaks = find_peaks(bins, min_peak_size=5, peak_diff=0.5)
-    print(peaks)
+    peaks = find_peaks(bins, min_peak_size=1000, peak_diff=0.5)
+    #print(peaks)
     
     return peaks
 
+def test():
+    pass
+    
 def plot(bins, raw_bins, peaks, width):
     plt.clf()
+    plt.figure(1)
     plt.plot(raw_bins['edge']+width/2, raw_bins['height'], color='r')
-    plt.plot(bins['edge']+width/2, bins['height'], color='b')
+    #plt.plot(bins['edge']+width/2, bins['height'], color='b')
     
-    for el in peaks:
-        plt.axvline(el['edge']+width/2, color='g')
+    #for el in peaks:
+    #    plt.axvline(el['edge']+width/2, color='g')
     plt.yscale('log')
         
-    plt.xlim(0, 200)
+    #plt.xlim(0, 100)
     #plt.ylim(0, peaks[0][0])
     axes = plt.gca()
     axes.set_ylim(ymin = 1)

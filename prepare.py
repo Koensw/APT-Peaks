@@ -11,6 +11,11 @@ def bin_data(data, accuracy=0.1):
     dt = np.dtype([('height', np.int64), ('edge', np.float64)])
     return np.rec.fromarrays([counts, edges], dt), accuracy/2
     
+def cap_bins(bins, min=0, max=np.inf):
+    mask = min <= bins['edge']  
+    mask &= bins['edge'] <= max
+    return bins[mask]
+    
 def zero_extend(bins, width):
     narr = np.zeros((int((bins[-1]['edge']-bins[0]['edge'])/width+1),), dtype = bins.dtype)
     
