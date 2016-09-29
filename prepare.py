@@ -11,7 +11,7 @@ def bin_data(data, accuracy=0.1):
     dt = np.dtype([('height', np.int64), ('edge', np.float64)])
     return np.rec.fromarrays([counts, edges], dt), accuracy/2
     
-def cap_bins(bins, min=0, max=np.inf):
+def cap_bins(bins, min=-np.inf, max=np.inf):
     mask = min <= bins['edge']  
     mask &= bins['edge'] <= max
     return bins[mask]
