@@ -67,7 +67,7 @@ def find_peaks(bins, peak_diff = 0.1, peak_amount = None, min_peak_size = None):
         
     return np.sort(bins[mask])[:peak_amount:-1]
     
-def find_peaks_level(bins, window_size, precision = 10**6, initialization_width = 10):    
+def find_peaks_level(bins, window_size, precision = 10**6, initialization_width = 10, min_peak_height = -np.inf):    
     bst = sortedcontainers.SortedSet()
     
     mask = np.zeros(shape=bins.shape, dtype=(np.bool))
@@ -89,7 +89,7 @@ def find_peaks_level(bins, window_size, precision = 10**6, initialization_width 
             if np.isnan(htp): htp = 0
             htp = int(htp * precision)
             
-            if cnt_el == (htp, inp): mask[inp] = True
+            if cnt_el == (htp, inp) and cnt_el[0] > min_peak_height*precision: mask[inp] = True
             
             bst.remove((htp, inp))
             
@@ -101,7 +101,7 @@ def find_peaks_level(bins, window_size, precision = 10**6, initialization_width 
             
         if cnt_el and not bst[-1] == cnt_el: cnt_el = None
             
-    if cnt_el and cnt_el[1] == pos_peaks[-1]: mask[pos_peaks[-1]] = True
+    if cnt_el and cnt_el[1] == pos_peaks[-1] and cnt_el[0] > min_peak_height*precision: mask[pos_peaks[-1]] = True
                  
     return np.nonzero(mask)[0]
         
@@ -109,6 +109,151 @@ from apt_peaks.algs import find_peaks_level
 from scipy import signal
 from apt_peaks.wavelet_functions import HalfDOG, Poisson, APTFunction2
 from wavelets import WaveletAnalysis, Ricker, Morlet
+
+def delete_ridge(ridge, row, col):
+    ridge['loc'][row, col] = -1
+    while ridge['from'][row, col] != -1:
+        col = ridge['from'][row, col]
+        row = row-1    
+        
+        ridge['loc'][row, col] = -1
+
+def find_ridge_lines(power, width, left_window, right_window, gap_thresh = 2, max_start_scale = 0.1):
+    left_window_list = np.array(left_window/width, dtype=np.float64, ndmin=1, copy=False)
+    right_window_list = np.array(right_window/width, dtype=np.float64, ndmin=1, copy=False)
+    
+    left_window_list = np.lib.pad(left_window_list, (0, power.shape[0]-left_window_list.shape[0]), 'edge')
+    right_window_list = np.lib.pad(right_window_list, (0, power.shape[0]-right_window_list.shape[0]), 'edge') 
+    
+    dtype = np.dtype([('power', np.float64),
+                      ('peak', np.bool),
+                      ('from', np.int64),
+                      ('gap', np.int64),
+                      ('max', np.float64),
+                      ('loc', np.int64),
+                      ('length', np.int)])
+
+    ridge = np.ndarray(shape=power.shape, dtype=dtype)
+    ridge['length'] = 0
+    ridge['peak'] = False
+    ridge['gap'] = 0
+    ridge['max'] = 0
+    ridge['from'] = -1
+    ridge['loc'] = -1
+    ridge['power'] = power
+
+    last_peaks = np.empty((0), dtype=np.int64)
+    dtype = np.dtype([('row', np.int64),
+                      ('col', np.int64),
+                      ('max', np.float64), 
+                      ('max_row', np.int64), 
+                      ('loc', np.int64),
+                      ('length', np.int64)])
+    start_ridges = np.empty(power.shape[0]*power.shape[0], dtype=dtype)
+    start_ridges_idx = 0
+    for index, (left_window, right_window) in enumerate(np.c_[left_window_list, right_window_list]):
+        # find the peaks on the current level
+        row = index
+        peaks = find_peaks_level(power[row,:], int(max(1, left_window+right_window)), min_peak_height = 1)
+        ridge['peak'][row,peaks] = True
+        
+        # match with the previous levels or make new ridge
+        points = np.searchsorted(last_peaks, peaks)
+        last_peaks_length = len(last_peaks)
+        keep_mask = np.ones(last_peaks.shape, dtype=np.bool)
+        for ind, ins_idx in np.ndenumerate(points): 
+            min_i = -1
+            min_v = max(left_window, right_window)+1 
+            
+            if ins_idx != 0 and peaks[ind]-left_window <= last_peaks[ins_idx-1] <= peaks[ind]+right_window and peaks[ind]-last_peaks[ins_idx-1] < min_v: 
+                min_v = peaks[ind]-last_peaks[ins_idx-1]
+                min_i = ins_idx-1
+            if ins_idx != last_peaks_length and peaks[ind]-left_window <= last_peaks[ins_idx] <= peaks[ind]+right_window and last_peaks[ins_idx]-peaks[ind] < min_v:
+                min_v = last_peaks[ins_idx]-peaks[ind]
+                min_i = ins_idx
+                
+            # if min_i != -1: print(peaks[ind]-left_window, last_peaks[min_i], peaks[ind]+right_window)    
+                
+            # TODO: improve use of gap for better matching
+            if min_v <= max(left_window, right_window):
+                ridge['from'][row,peaks[ind]] = last_peaks[min_i]
+                ridge['gap'][row,peaks[ind]] = 0
+                ridge['max'][row,peaks[ind]] = max(power[row,peaks[ind]], ridge['max'][row-1,last_peaks[min_i]])
+                ridge['length'][row,peaks[ind]] = ridge['length'][row-1,last_peaks[min_i]]+1
+                ridge['loc'][row,peaks[ind]] = ridge['loc'][row-1,last_peaks[min_i]]
+                                
+                # allow multi peak matching 
+                # TODO: check if multi peak matching occurs and how to handle
+                keep_mask[min_i] = 0
+            else:
+                ridge['from'][row,peaks[ind]] = -1
+                ridge['gap'][row,peaks[ind]] = 0
+                ridge['length'][row,peaks[ind]] = 1
+                ridge['max'][row,peaks[ind]] = power[row,peaks[ind]]
+                ridge['loc'][row,peaks[ind]] = peaks[ind]
+        
+        # update all non-matched peaks
+        for i, idx in np.ndenumerate(last_peaks):
+            if keep_mask[i] == 0: continue
+            
+            #if ridge['peak'][row,idx]: 
+            #    print("IMPOSSIBLE")
+            #    continue
+                
+            ridge['gap'][row,idx] = ridge['gap'][row-1,idx]+1
+            ridge['from'][row,idx] = idx
+            ridge['max'][row,idx] = ridge['max'][row-1,idx]
+            ridge['loc'][row,idx] = ridge['loc'][row-1,idx]
+            ridge['length'][row,idx] = ridge['length'][row-1,idx]
+            
+            if ridge['gap'][row,idx] > gap_thresh:
+                start_ridges[start_ridges_idx]['row'] = row
+                start_ridges[start_ridges_idx]['col'] = idx
+                start_ridges[start_ridges_idx]['max'] = ridge['max'][row, idx]
+                start_ridges[start_ridges_idx]['loc'] = ridge['loc'][row, idx]
+                start_ridges[start_ridges_idx]['length'] = ridge['length'][row, idx]
+                
+                start_ridges_idx = start_ridges_idx + 1    
+                keep_mask[i] = 0
+            
+        # remove the peaks that are matched or over the gap threshold
+        last_peaks = last_peaks[keep_mask]
+        
+        # merge the new peaks in
+        last_peaks = np.concatenate((last_peaks, peaks))
+        last_peaks.sort(kind='mergesort')
+
+    # get last ridge lines
+    for i, idx in np.ndenumerate(last_peaks):
+        start_ridges[start_ridges_idx]['row'] = power.shape[0]-1
+        start_ridges[start_ridges_idx]['col'] = idx
+        start_ridges[start_ridges_idx]['max'] = ridge['max'][-1, idx]
+        start_ridges[start_ridges_idx]['loc'] = ridge['loc'][-1, idx]
+        start_ridges[start_ridges_idx]['length'] = ridge['length'][-1, idx]
+        start_ridges_idx = start_ridges_idx + 1
+        
+    # get the start of ridge lines
+    start_ridges = start_ridges[:start_ridges_idx]
+    
+    # find maximum positions
+    noise_level = 0;
+    for ind, (row, col, ridge_max, max_row, loc, length) in np.ndenumerate(start_ridges):    
+        max_row = -1
+        
+        if np.isclose(ridge_max, power[row,col]):
+            max_row = row
+        else:    
+            while ridge['from'][row, col] != -1:
+                col = ridge['from'][row, col]
+                row = row-1
+                
+                if np.isclose(ridge_max, power[row,col]):
+                    max_row = row
+                    break
+        
+        start_ridges[ind]['max_row'] = max_row
+    
+    return ridge, start_ridges
 
 def find_peaks_cwt(bins, width, snr, peak_separation = 0, gap_scale = 0.05, gap_thresh = 2):
     wavelet = Ricker()
@@ -123,126 +268,16 @@ def find_peaks_cwt(bins, width, snr, peak_separation = 0, gap_scale = 0.05, gap_
     noise_window = int(0.5/width) # TODO: choose a proper noise window
 
     wa = WaveletAnalysis(arr, wavelet=wavelet, dt=width)
+    wa.time = bins['edge']+width/2
     scales = wa.scales = 2**(np.arange(min_scale, max_scale, gap_scale))
-
     power = np.real(wa.wavelet_transform)
-    #power[power < 1e-8] = 1e-8
-    #power = np.log(power)
-
-    def delete_ridge(row, col):
-        ridge['loc'][row, col] = -1
-        while ridge['from'][row, col] != -1:
-            col = ridge['from'][row, col]
-            row = row-1    
             
-            ridge['loc'][row, col] = -1
-
-
-    dtype = np.dtype([('power', np.float64),
-                      ('peak', np.bool),
-                      ('from', np.int64),
-                      ('gap', np.int64),
-    #                  ('length', np.int),
-                      ('max', np.float64),
-                      ('loc', np.int64)])
-
-    ridge = np.ndarray(shape=power.shape, dtype=dtype)
-    ridge['peak'] = False
-    ridge['gap'] = 0
-    ridge['max'] = 0
-    ridge['from'] = -1
-    ridge['loc'] = -1
-    ridge['power'] = power
-
-    last_peaks = np.empty((0), dtype=np.int64)
-    dtype = np.dtype([('row', np.int64),
-                      ('col', np.int64),
-                      ('max', np.float64), 
-                      ('loc', np.int64)])
-    start_ridges = np.empty(bins.shape, dtype=dtype)
-    start_ridges_idx = 0
-    for index, scale in np.ndenumerate(scales):
-        window_size = int(max(1, scale/width))
-        
-        # find the peaks on the current level
-        row = index[0]
-        peaks = find_peaks_level(power[row,:], window_size)
-        ridge['peak'][row,peaks] = True
-        
-        # match with the previous levels or make new ridge
-        #if last_peaks is not None:
-        points = np.searchsorted(last_peaks, peaks)
-        last_peaks_length = len(last_peaks)
-        for ind, ins_idx in np.ndenumerate(points): 
-            min_i = -1
-            min_v = window_size+1
-
-            if ins_idx != 0 and last_peaks[ins_idx-1] != -1 and peaks[ind]-last_peaks[ins_idx-1] < min_v: 
-                min_v = peaks[ind]-last_peaks[ins_idx-1]
-                min_i = ins_idx-1
-            if ins_idx != last_peaks_length and last_peaks[ins_idx] != -1 and last_peaks[ins_idx]-peaks[ind] < min_v:
-                min_v = last_peaks[ins_idx]-peaks[ind]
-                min_i = ins_idx
-
-            # TODO: improve use of gap for better matching
-            if min_v <= window_size//2:
-                ridge['from'][row,peaks[ind]] = last_peaks[min_i]
-                ridge['gap'][row,peaks[ind]] = 0
-                ridge['max'][row,peaks[ind]] = max(power[row,peaks[ind]], ridge['max'][row-1,last_peaks[min_i]])
-                ridge['loc'][row,peaks[ind]] = ridge['loc'][row-1,last_peaks[min_i]]
-                
-                last_peaks[min_i] = -1 # TODO: check if multi peak matching occurs and how to handle
-            else:
-                ridge['from'][row,peaks[ind]] = -1
-                ridge['gap'][row,peaks[ind]] = 0
-                ridge['max'][row,peaks[ind]] = power[row,peaks[ind]]
-                ridge['loc'][row,peaks[ind]] = peaks[ind]
-        
-        # update all non-matched peaks
-        for i, idx in np.ndenumerate(last_peaks):
-            if idx == -1: continue
-            
-            if ridge['peak'][row,idx]: 
-                print("IMPOSSIBLE")
-                continue
-                
-            ridge['gap'][row,idx] = ridge['gap'][row-1,idx]+1
-            ridge['from'][row,idx] = idx
-            ridge['max'][row,idx] = ridge['max'][row-1,idx]
-            ridge['loc'][row,idx] = ridge['loc'][row-1,idx]
-            
-            if ridge['gap'][row,idx] > gap_thresh:
-                start_ridges[start_ridges_idx]['row'] = row
-                start_ridges[start_ridges_idx]['col'] = idx
-                start_ridges[start_ridges_idx]['max'] = ridge['max'][row, idx]
-                start_ridges[start_ridges_idx]['loc'] = ridge['loc'][row, idx]
-                
-                start_ridges_idx = start_ridges_idx + 1    
-                last_peaks[i] = -1
-            
-        # remove the peaks that are matched or over the gap threshold and peaks that are not considered anymore
-        last_peaks = last_peaks[last_peaks != -1]
-        peaks = peaks[peaks != -1]
-        
-        # merge the new peaks in
-        last_peaks = np.concatenate((last_peaks, peaks))
-        last_peaks.sort(kind='mergesort')
-
-    # get last ridge lines
-    for i, idx in np.ndenumerate(last_peaks):
-        start_ridges[start_ridges_idx]['row'] = len(scales)-1
-        start_ridges[start_ridges_idx]['col'] = idx
-        start_ridges[start_ridges_idx]['max'] = ridge['max'][-1, idx]
-        start_ridges[start_ridges_idx]['loc'] = ridge['loc'][-1, idx]
-        start_ridges_idx = start_ridges_idx + 1
-        
-    # get the start of ridge lines
-    start_ridges = start_ridges[:start_ridges_idx]
+    ridge, start_ridges = find_ridge_lines(power, width, scales, scales, gap_thresh)        
             
     # correct maxima for snr and push them down deleting any that does not work
     num_points = power[0,:].shape[0]
     tot_noise = np.percentile(abs(power[0,:]), 95)
-    for ind, (row, col, ridge_max, loc) in np.ndenumerate(start_ridges):    
+    for ind, (row, col, ridge_max, max_row, loc, length) in np.ndenumerate(start_ridges):    
         # estimate noise at smallest bin level
         level = 0; #np.where(scales > 10*width)[0][0]
         window_start = max(loc - noise_window, 0)
@@ -250,28 +285,22 @@ def find_peaks_cwt(bins, width, snr, peak_separation = 0, gap_scale = 0.05, gap_
         noise = np.percentile(abs(power[level,window_start:window_end]), 95)
                 
         if ridge_max / noise < snr: 
-            delete_ridge(row, col)
+            delete_ridge(ridge, row, col)
             start_ridges['row'][ind] = -1
             continue
-                
-        max_loc = -1
-        if np.isclose(ridge_max, power[row,col]):
-            ridge['max'][max(0,row-3):row+3, max(0, col-100):col+100] = ridge_max
-            max_loc = row
             
         while ridge['from'][row, col] != -1:
             col = ridge['from'][row, col]
             row = row-1
             
             if np.isclose(ridge_max, power[row,col]):
-                max_loc = row
-                ridge['max'][max(0,row-3):row+3, max(0, col-100):col+100] = ridge_max
+                ridge['max'][max(0,row-3):row+3, max(0, col-20):col+20] = ridge_max
             else:
-                ridge['max'][row,col] = 0    
+                ridge['max'][max(0,row-3):row+3, max(0, col-20):col+20] = ridge_max  
                 
-        # TODO VARY THIS OVER THE SPECTRUM INSTEAD        
-        if ridge_max / tot_noise < 4 and scales[max_loc] < 10*width:
-            delete_ridge(start_ridges[ind]['row'], start_ridges[ind]['col'])
+        # TODO VARY THIS OVER THE SPECTRUM INSTEAD!!!     
+        if ridge_max / tot_noise < 4 and scales[max_row] < 10*width:
+            delete_ridge(ridge, start_ridges[ind]['row'], start_ridges[ind]['col'])
             start_ridges['row'][ind] = -1
             
     start_ridges = start_ridges[start_ridges['row'] != -1]
@@ -286,4 +315,41 @@ def find_peaks_cwt(bins, width, snr, peak_separation = 0, gap_scale = 0.05, gap_
         start_ridges['row'][idx+1:aft] = -1
         start_ridges = start_ridges[start_ridges['row'] != -1]
     
-    return wa.time, wa.scales, ridge, start_ridges
+    return wa.time, wa.scales, ridge, start_ridges    
+    
+def find_correlation_lines(power, width):
+    ridge, start_ridges = find_ridge_lines(power, width, 1, 0, gap_thresh=5)
+         
+    # filter them..
+    num_points = power[0,:].shape[0]
+    ridge['max'] = 0
+    for ind, (row, col, ridge_max, max_row, loc, length) in np.ndenumerate(start_ridges):                                    
+        max_loc = -1
+        
+        if length < 30:
+            delete_ridge(ridge, row, col)
+            start_ridges[ind]['row'] = -1
+            continue
+        
+        if np.isclose(ridge_max, power[row,col]):
+            ridge['max'][row,col] = 1
+            max_loc = row
+            
+        chk_len = 1
+        while ridge['from'][row, col] != -1:
+            col = ridge['from'][row, col]
+            row = row-1
+            
+            if np.isclose(ridge_max, power[row,col]):
+                max_loc = row
+                ridge['max'][row,col] = 1
+            else:
+                ridge['max'][row,col] = 1
+                
+            chk_len = chk_len+1
+                    
+    start_ridges = start_ridges[start_ridges['row'] != -1]
+    start_ridges = np.sort(start_ridges, order="length")[::-1]
+    
+    return ridge, start_ridges
+    
