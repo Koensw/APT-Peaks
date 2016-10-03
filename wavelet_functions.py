@@ -2,6 +2,14 @@ import scipy
 import numpy as np
 import math
 
+from wavelets import DOG, Ricker
+
+# a Ricker function that gives an direct unbiased wavelet transform
+class UnbiasedRicker(Ricker):        
+    def time(self, t, s=1.0):
+        return Ricker.time(self, t, s) / np.sqrt(s)
+
+
 class HalfDOG(object):
     def __init__(self, m=2):
         """Initialise a Derivative of Gaussian wavelet of order `m`."""

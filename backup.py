@@ -285,3 +285,88 @@ def find_peaks_cwt_old(bins, width, snr, peak_separation = 0, gap_scale = 0.05, 
         start_ridges = start_ridges[start_ridges['row'] != -1]
     
     return wa.time, wa.scales, ridge, start_ridges
+
+# FIND CORRELATION LINES
+from apt_peaks.algs import find_correlation_lines
+mult = data_multi.copy()
+ridge, start_ridges = find_correlation_lines(ht, xe[1]-xe[0])
+
+for rdg in start_ridges:
+    row = rdg['row']
+    col = rdg['col']
+
+    y = np.zeros(rdg['length'])
+    x = np.zeros(rdg['length'])
+    y[0] = ridge['power'][row, col]
+    x[0] = col
+    k = 1
+    while ridge['from'][row, col] != -1:
+        col = ridge['from'][row, col]
+        row = row-1
+        
+        #print(ridge['power'][row, col], rdg['max']/2)
+        if ridge['power'][row, col] > rdg['max']/10: 
+            #print("OK")
+            break
+
+        #ridge['max'][row, min(0, col-1):col+1] = -1    
+            
+        if x[k-1] == col: continue
+        y[k] = ridge['power'][row, col]
+        x[k] = col
+        k = k+1
+    #if k > 99: break
+
+k = 0
+corr_x = np.zeros(mult.shape)
+corr_y = np.zeros(mult.shape)
+for i, el in np.ndenumerate(mult):
+    i = i[0]
+    if el['Mhit'] == 0: continue
+        
+    if el['m'] > 100: continue
+        
+    for j in range(1,el['Mhit']):
+        if mult[i+j]['m'] > 100: continue
+        x_bin = int(el['m']/(xe[1]-xe[0]))
+        y_bin = int(mult[i+j]['m']/(ye[1]-ye[0]))
+        
+        #print(xe[x_bin], xe[x_bin+1], el['m'])
+        #break
+
+        if ridge['max'][y_bin-1, x_bin-1] < 0:
+            corr_x[k] = el['m']
+            corr_y[k] = mult[i+j]['m']
+            k = k+1
+
+            mult[i]['m'] = -1
+            #break
+       
+    if mult[i]['m'] == -1:
+        for j in range(1,el['Mhit']):
+            #pass
+            mult[i+j]['m'] = -1
+            
+#print(mult[i]['m'])
+                        
+corr_x = corr_x[:k]
+corr_y = corr_y[:k]
+
+print(len(mult))
+mult = mult[mult['m'] > -1]
+print(len(mult))
+
+plt.scatter(corr_x, corr_y)
+X, Y = np.meshgrid(xe[:-1], ye[:-1])
+plt.contourf(X, Y, ridge_log, 100, interpolationt="none")
+plt.axes().set_aspect('equal', 'datalim')
+
+plt.figure(7)
+plt.clf()
+
+mult_bins, width = bin_data(mult['m'], 0.002)
+mult_bins = zero_extend(mult_bins, width)
+mult_bins = cap_bins(mult_bins, 0, 100)
+
+plt.plot(mult_bins['edge']+width/2,mult_bins['height'])
+plt.yscale('log')

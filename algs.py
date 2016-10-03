@@ -2,7 +2,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy import signal
 
+from scipy import signal
+from wavelets import WaveletAnalysis, Ricker, Morlet
+
 import sortedcontainers
+
+from apt_peaks.wavelet_functions import UnbiasedRicker, HalfDOG, Poisson, APTFunction2
 
 def estimate_baseline(bins, width, window, max_baseline):
     bst = sortedcontainers.SortedSet()
@@ -105,18 +110,18 @@ def find_peaks_level(bins, window_size, precision = 10**6, initialization_width 
                  
     return np.nonzero(mask)[0]
         
-from apt_peaks.algs import find_peaks_level
-from scipy import signal
-from apt_peaks.wavelet_functions import HalfDOG, Poisson, APTFunction2
-from wavelets import WaveletAnalysis, Ricker, Morlet
-
 def delete_ridge(ridge, row, col):
     ridge['loc'][row, col] = -1
+    ridge['max'][row, col] = 0
+    ridge['length'][row, col] = 0
+    
     while ridge['from'][row, col] != -1:
         col = ridge['from'][row, col]
         row = row-1    
         
         ridge['loc'][row, col] = -1
+        ridge['max'][row, col] = 0
+        ridge['length'][row, col] = 0
 
 def find_ridge_lines(power, width, left_window, right_window, gap_thresh = 2, max_start_scale = 0.1):
     left_window_list = np.array(left_window/width, dtype=np.float64, ndmin=1, copy=False)
@@ -256,18 +261,18 @@ def find_ridge_lines(power, width, left_window, right_window, gap_thresh = 2, ma
     return ridge, start_ridges
 
 def find_peaks_cwt(bins, width, snr, peak_separation = 0, gap_scale = 0.05, gap_thresh = 2):
-    wavelet = Ricker()
+    wavelet = UnbiasedRicker()
 
     min_scale = np.log2(4*width)
     max_scale = np.log2(bins['edge'][-1] - bins['edge'][0])
     
-    arr = bins['height'].astype(np.float)
-    arr[arr < 1.0] = 1
-    arr = np.log(arr)
+    height_log = bins['height'].astype(np.float)
+    height_log[height_log < 1.0] = 1.0
+    height_log = np.log(height_log)
 
     noise_window = int(0.5/width) # TODO: choose a proper noise window
 
-    wa = WaveletAnalysis(arr, wavelet=wavelet, dt=width)
+    wa = WaveletAnalysis(height_log, wavelet=wavelet, dt=width)
     wa.time = bins['edge']+width/2
     scales = wa.scales = 2**(np.arange(min_scale, max_scale, gap_scale))
     power = np.real(wa.wavelet_transform)
@@ -293,6 +298,7 @@ def find_peaks_cwt(bins, width, snr, peak_separation = 0, gap_scale = 0.05, gap_
             col = ridge['from'][row, col]
             row = row-1
             
+            # TODO ADD THIS *SHOW* FIELD AS AN EXTRA FIELD?
             if np.isclose(ridge_max, power[row,col]):
                 ridge['max'][max(0,row-3):row+3, max(0, col-20):col+20] = ridge_max
             else:
@@ -318,7 +324,7 @@ def find_peaks_cwt(bins, width, snr, peak_separation = 0, gap_scale = 0.05, gap_
     return wa.time, wa.scales, ridge, start_ridges    
     
 def find_correlation_lines(power, width):
-    ridge, start_ridges = find_ridge_lines(power, width, 1, 0, gap_thresh=5)
+    ridge, start_ridges = find_ridge_lines(power, width, 1, -0.02, gap_thresh=5)
          
     # filter them..
     num_points = power[0,:].shape[0]
