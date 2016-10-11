@@ -370,3 +370,26 @@ mult_bins = cap_bins(mult_bins, 0, 100)
 
 plt.plot(mult_bins['edge']+width/2,mult_bins['height'])
 plt.yscale('log')
+
+for i, el in enumerate(mult):
+    if el['Mhit'] == 0: continue
+    if el['m'] > 100: continue
+    
+    first_valid = False
+    second_valid = False
+        
+    ins_idx = np.searchsorted(peak_intervals, el['m'])
+    if (ins_idx % 2) == 1:
+        #print(peak_intervals[ins_idx-1], peak_intervals[ins_idx])
+        first_valid = True
+        
+    for j in range(1,el['Mhit']):
+        ins_idx = np.searchsorted(peak_intervals, mult[i+j]['m'])
+        if (ins_idx % 2) == 1:
+            second_valid = True
+            
+        if not first_valid:
+            mult[i+j]['m'] = -1
+       
+    if not second_valid:
+        mult[i]['m'] = -1
