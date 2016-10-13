@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from scipy import signal
 
 from scipy import signal, optimize
+from numpy.polynomial import polynomial as nppoly
 from wavelets import WaveletAnalysis, Ricker, Morlet
 
 import sortedcontainers
@@ -261,7 +262,7 @@ def find_ridge_lines(power, width, left_window, right_window, gap_thresh = 2, ma
     return ridge, start_ridges
 
 def find_peaks_cwt(bins, width, snr, peak_separation = 0, min_length_percentage = 0.25, min_scale_percentage = 0.3, 
-                   insignificant_scale_multiplier = 10, insignificant_snr_multiplier = 2, 
+                   insignificant_scale_multiplier = 30, insignificant_snr_multiplier = 2, insignificant_scale_mass = 0,
                    noise_window = 0.5, peak_range = (0.5, np.inf), gap_scale = 0.05, gap_thresh = 2):
     wavelet = UnbiasedRicker()
 
@@ -320,14 +321,17 @@ def find_peaks_cwt(bins, width, snr, peak_separation = 0, min_length_percentage 
         start_ridges['row'][idx+1:aft] = -1
         start_ridges = start_ridges[start_ridges['row'] != -1]
     
-    # delete all that do not have expected range by estimating their uncertainty behaviour
-    mat = np.empty((start_ridges.shape[0], 2))
-    mat[:,0] = np.sqrt(wa.time[start_ridges['loc']])
-    mat[:,1] = wa.time[start_ridges['loc']]
+    # delete all that do not have expected range by estimating their uncertainty behaviour    
+    coeff = nppoly.polyfit(np.sqrt(wa.time[start_ridges['loc']]),scales[start_ridges['max_row']],[1, 2],w=start_ridges['max'])
     
-    optimize_result = optimize.lsq_linear(mat, scales[start_ridges['max_row']], (np.zeros(2), np.full(2, max_scale)))
-    coeff = optimize_result.x
-    y_scale_fit = min_scale_percentage*(coeff[0]*wa.time+coeff[1]*np.sqrt(wa.time))
+    # TODO FIX
+    print(coeff[1], coeff[2])
+    if coeff[1] < 0 or coeff[2] < 0:
+        print("Unexpected fit")
+        if coeff[1] < 0: coeff[1] = 0
+        if coeff[2] < 0: coeff[2] = 0
+    
+    y_scale_fit = min_scale_percentage*(coeff[2]*wa.time+coeff[1]*np.sqrt(wa.time))
     
     for ind, (row, col, ridge_max, max_row, loc, length) in np.ndenumerate(start_ridges):
         if scales[max_row] < y_scale_fit[loc]:
@@ -337,7 +341,19 @@ def find_peaks_cwt(bins, width, snr, peak_separation = 0, min_length_percentage 
     start_ridges = start_ridges[start_ridges['row'] != -1]
     
     # delete multiplied snr below the insignificant_boundary (because scale not high enough to be measured but peaks should be clear in this area) 
-    insignificant_boundary = np.nonzero(y_scale_fit > insignificant_scale_multiplier*width)[0][0]
+    insignificant_boundary = np.nonzero(y_scale_fit/min_scale_percentage > insignificant_scale_multiplier*width)[0]
+    if len(insignificant_boundary) != 0:
+        insignificant_boundary = insignificant_boundary[0]
+    else:  
+        insignificant_boundary = np.inf
+    
+    mass_boundary = np.nonzero(wa.time > insignificant_scale_mass)[0]
+    if len(mass_boundary) != 0:
+        insignificant_boundary = max(insignificant_boundary, mass_boundary[0])
+    else:  
+        insignificant_boundary = np.inf
+        
+    print(wa.time[insignificant_boundary])    
     for ind, (row, col, ridge_max, max_row, loc, length) in np.ndenumerate(start_ridges[start_ridges['loc'] < insignificant_boundary]):
         # estimate noise at smallest bin level
         level = 0
@@ -350,7 +366,7 @@ def find_peaks_cwt(bins, width, snr, peak_separation = 0, min_length_percentage 
             delete_ridge(ridge, row, col)
             start_ridges['row'][ind] = -1
             continue
-        
+    
     start_ridges = start_ridges[start_ridges['row'] != -1]
     
     return wa.time, wa.scales, ridge, start_ridges    
