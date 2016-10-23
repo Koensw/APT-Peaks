@@ -7,7 +7,7 @@ from wavelets import DOG, Ricker
 # a Ricker function that gives an direct unbiased wavelet transform
 class UnbiasedRicker(Ricker):        
     def time(self, t, s=1.0):
-        return Ricker.time(self, t, s) / np.sqrt(s)
+        return Ricker.time(self, t, s) #/ np.sqrt(s)
 
 
 class HalfDOG(object):
