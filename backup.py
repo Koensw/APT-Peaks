@@ -393,3 +393,169 @@ for i, el in enumerate(mult):
        
     if not second_valid:
         mult[i]['m'] = -1
+        
+# PEAK MODELING
+from scipy import optimize
+from scipy import special
+#fit_bins = cap_bins(raw_bins, 33, 36)
+#fit_bins = cap_bins(raw_bins, 63.2, 64)
+
+def fit_func(x, A, B):
+    #x = x.astype(np.complex64)
+    return A-1/0.05*np.sqrt(1+B*np.sqrt(x))
+
+def exp_func(x, A, B):
+    m = 2
+    He_n = special.hermitenorm(m)
+    gamma = special.gamma
+    ricker_const = (-1) ** (m + 1) / gamma(m + 0.5) ** .5
+    ricker_func = He_n(x) * np.exp(-(x ** 2 / 2) * 500)
+    
+    Un_n = lambda t: 0.5 * (np.sign(t) + 1)
+    return Un_n(x) * (np.exp(A-1/0.05*np.sqrt(1+B*np.sqrt(np.abs(x))))) + 1000 * ricker_const * ricker_func
+
+ranges = [(12.0, 14), (19.98,26), (32,37), (47, 51), (63, 68)]
+
+mod_bins = raw_bins.copy().astype(np.dtype([('height', np.float64), ('edge', np.float64)]))
+mod_bins['height'] -= exp_func(mod_bins['edge']+width/2-19.98, 28, 0.2)
+mod_bins['height'][mod_bins['height'] < 1e-1] = 1e-1
+
+plt.figure(1)
+plt.clf()
+plt.plot(mod_bins['edge']+width/2, mod_bins['height'], color='y')
+#plt.plot(mod_bins['edge']+width/2, exp_func(mod_bins['edge']+width/2-19.98, 28, 0.2), color='c')
+plt.yscale('log')
+
+for r in ranges:
+    fit_bins = cap_bins(mod_bins.copy(), r[0], r[1])
+    
+    arr = fit_bins['height'].astype(np.float)
+    arr[arr < 1.0] = 1
+    arr = np.log(arr)
+    
+    #B, A = np.polyfit((fit_bins['edge']+width/2)+1), np.log(fit_bins['height']), 1)
+    popt, pcov = optimize.curve_fit(fit_func, fit_bins['edge']+width/2-r[0], arr)
+    A, B = popt
+    plt.plot(fit_bins['edge']+width/2, exp_func(fit_bins['edge']+width/2-r[0], A, B), color='r')
+    plt.annotate(B, xy=(r[0]+1, max(fit_bins['height'])))
+    print(A, B)
+    
+# PEAK DECONVOLUTION
+from scipy import signal
+x = np.arange(-10, 0, 0.1)#raw_bins['edge']+width/2
+divisor = np.exp(-20*np.sqrt(1+0.2*np.sqrt(np.abs(x)))) #np.exp(-0.75*raw_bins['edge']+width/2)
+divisor = np.concatenate((np.zeros(divisor.shape), divisor))
+plt.figure(2)
+plt.clf()
+plt.plot(divisor)
+dec, remainder = signal.deconvolve(raw_bins['height'], divisor[::-1]) #, mode="same"
+
+print(dec.shape)
+plt.figure(1)
+plt.clf()
+plt.plot(raw_bins['edge']+width/2, raw_bins['height'], color='y')
+plt.plot( dec, color='r') # raw_bins['edge']+width/2,
+plt.yscale('log')
+
+#ridge['peak'] = False
+
+# SHOW MAXIMA
+# push down the maxima
+for row, col in start_ridges[::-1]:
+    ridge_max = ridge['max'][row, col]
+    while ridge['from'][row, col] != -1:
+        #if not ridge['peak'][row, col] or ridge['max'][row, col] > ridge_max: 
+        #    print("ERROR")
+                  
+        ridge['max'][row, col] = ridge_max
+        col = ridge['from'][row, col]
+        row = row-1
+    
+plt.figure(1)
+plt.clf()
+f, axarr = plt.subplots(2, sharex=True, num=1)
+axarr[0].plot(raw_bins['edge']+width/2, arr, color='b')
+#axarr[0].set_yscale('log', basey=10)
+#axarr[0].contourf(T, S, power, 100)
+#axarr[0].set_yscale('log', basey=2)
+axarr[1].contour(T, S, ridge['max'], 10, cmap='Greys', interpolation='none')
+axarr[1].set_yscale('log', basey=2)
+
+plt.figure(2)
+plt.clf()
+#print(np.nonzero(ridge['peak']))
+plt.imshow(ridge['peak'], cmap='Greys', extent=[0, 100, -10, 10], origin='lower')
+
+# INTEGRATION TESTS
+from scipy import integrate
+
+plt.figure(3)
+plt.clf()
+t = np.arange(-5,10, 0.01)
+y = apt_func(t, 0, 0.2)
+
+print(2**-4, width)
+
+g = signal.gaussian(t.shape[0], (2**-5)/width)
+norm = np.trapz(g)
+g /= norm
+
+y = signal.fftconvolve(y, g, mode="same")
+plt.plot(t, y)
+
+def fit_func(x, A, B):
+    #x = x.astype(np.complex64)
+    return A-1/0.05*np.sqrt(1+B*np.sqrt(x))
+
+def old_apt_func(x, d, C, B = 20):
+    y1 = np.zeros(np.count_nonzero(x < d))
+    y2 = np.exp(-B*np.sqrt(1+C*np.sqrt(x[x>=d]-d)))
+
+    y = np.concatenate((y1, y2))
+    g = signal.gaussian(t.shape[0], (2**-5)/width)
+    norm = np.trapz(g)
+    g /= norm
+    
+    return signal.fftconvolve(y, g, mode="same")
+    #return 
+
+def gauss_func(m, m_0, S):
+    s = S*m_0
+    print(1/(s**2),m_0,m)
+    c = 1/(np.sqrt(2*np.pi*s**2))
+    np.seterr(all="ignore")
+    f = np.exp(-1/2*(m/s)**2)
+    return c*f
+
+def apt_func(m, m_0, B, C):
+    y1 = np.zeros(np.count_nonzero(m < m_0))
+    y2 = (B**4*C**2)/(8*(3+B*(3+B)))*np.exp(B-B*np.sqrt(1+C*(np.sqrt(m[m>=m_0])-np.sqrt(m_0))))
+
+    y = np.concatenate((y1, y2))
+    return y
+
+def apt_func2(m, m_0, A1, B1):
+    t = np.sqrt(m[m>=m_0]-m_0)
+    y1 = np.zeros(np.count_nonzero(m < m_0))
+    y2 = A1**(np.exp(-B1*t)) #+A1**(B1/(B2-B1)*(np.exp(-B1*t)-np.exp(-B2*t)))*A2**np.exp(-B2*t)
+    
+    y = np.concatenate((y1, y2))
+    return y
+
+def mod_func2(m, m_0, S, A1, B1):
+    g = gauss_func(m-m[len(m)/2]+1e-8, m_0, S)
+    #a = apt_fit
+    #ind = np.nonzero(m >= m_0)[0][0]
+    #a = np.pad(a, [ind-200, 0], 'minimum')
+    #a = a[:len(m)]
+    a = apt_func2(m, m_0, A1, B1)
+    return signal.fftconvolve(a, g, mode="same")*(m[1]-m[0])
+
+def mod_func(m, m_0, S, A1, B1):
+    g = gauss_func(m-m[len(m)/2], m_0, S)
+    #a = apt_fit
+    #ind = np.nonzero(m >= m_0)[0][0]
+    #a = np.pad(a, [ind-200, 0], 'minimum')
+    #a = a[:len(m)]
+    a = apt_func(m, m_0, A1, B1)
+    return signal.fftconvolve(a, g, mode="same")*(m[1]-m[0])

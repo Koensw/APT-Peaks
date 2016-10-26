@@ -107,7 +107,7 @@ def find_peaks_level(bins, window_size, precision = 10**6, initialization_width 
             
         if cnt_el and not bst[-1] == cnt_el: cnt_el = None
             
-    if cnt_el and cnt_el[1] == pos_peaks[-1]: mask[pos_peaks[-1]] = True #!! and cnt_el[0] > min_peak_height*precision
+    if cnt_el and cnt_el[1] == pos_peaks[-1] and cnt_el[0] > min_peak_height*precision: mask[pos_peaks[-1]] = True
                  
     return np.nonzero(mask)[0]
         
@@ -160,11 +160,14 @@ def find_ridge_lines(power, width, left_window, right_window, gap_thresh = 2, no
                       ('noise', np.float32)])
     start_ridges = np.empty(power.shape[1], dtype=dtype)
     start_ridges_idx = 0
+    
+    #tmp_cnt = 0
     for index, (left_window, right_window) in enumerate(np.c_[left_window_list, right_window_list]):
         #print(left_window, right_window)
         # find the peaks on the current level
         row = index
-        peaks = find_peaks_level(power[row,:], int(max(1, left_window+right_window)), min_peak_height = 1)
+        peaks = find_peaks_level(power[row,:], int(max(1, left_window+right_window)), min_peak_height = 0)
+        #print(len(peaks), row, left_window+right_window)
         ridge['peak'][row,peaks] = True
         
         # match with the previous levels or make new ridge
@@ -267,7 +270,8 @@ def find_ridge_lines(power, width, left_window, right_window, gap_thresh = 2, no
                 start_ridges[ind]['loc'] = col
                 #break
         
-        # set optimized location
+        # set location
+        # TODO: determine if this better (than code above could be removed)
         start_ridges[ind]['loc'] = col
         
         #estimate noise at lowest bin level
@@ -296,20 +300,20 @@ def find_peaks_cwt(bins, width, snr, peak_separation = 0, min_length_percentage 
     scales = wa.scales = 2**(np.arange(min_scale, max_scale, gap_scale))
     power = np.real(wa.wavelet_transform)
             
-    ridge, start_ridges = find_ridge_lines(power, width, scales, scales, gap_thresh, noise_window)        
+    ridge, start_ridges = find_ridge_lines(power, width, scales/2, scales/2, gap_thresh, noise_window)        
             
     # correct maxima for snr and push them down deleting any that does not work
     tot_noise = np.percentile(abs(power[0,:]), 95)
     noise = np.zeros(shape=bins.shape[0], dtype=np.float32)
     for ind, (row, col, ridge_max, max_row, loc, length, noise) in np.ndenumerate(start_ridges):                    
         # delete out of range, too low snr or too low length
-        print(ind, wa.time[loc], length, len(scales))
+        #print(ind, wa.time[loc], length, len(scales), ridge_max, noise)
         if not (peak_range[0] <= wa.time[loc] <= peak_range[1]) or length < min_length_percentage*len(scales) or ridge_max / noise < snr : 
             delete_ridge(ridge, row, col)
             start_ridges['row'][ind] = -1
             continue
-            
-        #while ridge['from'][row, col] != -1:
+
+            #while ridge['from'][row, col] != -1:
         #    col = ridge['from'][row, col]
         #    row = row-1
             
@@ -331,8 +335,27 @@ def find_peaks_cwt(bins, width, snr, peak_separation = 0, min_length_percentage 
         start_ridges['row'][idx+1:aft] = -1
         start_ridges = start_ridges[start_ridges['row'] != -1]
     
+    # find the maximum row that does not include the asymmetric behavior
+    scale_row = np.zeros(shape=start_ridges.shape, dtype=np.int32)
+    for ind, (row, col, ridge_max, max_row, loc, length, noise) in np.ndenumerate(start_ridges):
+        scale_row[ind] = 0
+        #print('*', wa.time[loc])
+        while ridge['from'][row, col] != -1:
+            #print(wa.time[loc], wa.time[col])
+            if abs(wa.time[loc] - wa.time[col]) < 10*width and not np.isclose(ridge['max'][row, col], ridge_max):
+                scale_row[ind] = row
+                break
+            
+            col = ridge['from'][row, col]
+            row = row-1    
+          
+        start_ridges[ind]['max_row'] = scale_row[ind]
+        #print(scale_row[ind])
+            
     # delete all that do not have expected range by estimating their uncertainty behaviour    
-    coeff = nppoly.polyfit(np.sqrt(wa.time[start_ridges['loc']]),scales[start_ridges['max_row']],[1],w=start_ridges['max'])
+    coeff = nppoly.polyfit(np.sqrt(wa.time[start_ridges['loc']]),scales[scale_row],[1],w=start_ridges['max'])
+    print(coeff)
+    #coeff[1] = 0.007
     y_scale_fit = coeff[1]*np.sqrt(wa.time)+coeff[0]
    
     # TODO FIX
@@ -340,7 +363,7 @@ def find_peaks_cwt(bins, width, snr, peak_separation = 0, min_length_percentage 
         print("Unexpected fit")
         return None
    
-    # find the nearest scale level
+    # find the power at the nearest scale level and compare to snr
     for ind, (row, col, ridge_max, max_row, loc, length, noise) in np.ndenumerate(start_ridges):      
         exp_scale = y_scale_fit[loc]
         
@@ -348,63 +371,25 @@ def find_peaks_cwt(bins, width, snr, peak_separation = 0, min_length_percentage 
         trow = row
         tcol = col
         while ridge['from'][trow, tcol] != -1:
+            if scales[trow] < exp_scale:
+                if trow != row or exp_scale > 2: strength = power[trow,tcol]
+                break
+            
             tcol = ridge['from'][trow, tcol]
             trow = trow-1    
             
-            if scales[trow] < exp_scale:
-                strength = power[trow,tcol]
-                break
-    
-        print(wa.time[loc], y_scale_fit[wa.time[loc]], strength, noise, ridge_max)
-    
+        print(wa.time[loc], exp_scale, ridge_max, strength, noise) #, length, scales[trow], trow)
+       
         if strength/noise < insignificant_snr_multiplier:
             delete_ridge(ridge, row, col)
             start_ridges['row'][ind] = -1
+         
+        # modify the location to the value here
+        # start_ridges[ind]['loc'] = tcol
 
     start_ridges = start_ridges[start_ridges['row'] != -1]
-    print(coeff)
-    return wa.time, wa.scales, ridge, start_ridges    
-   
-    y_scale_fit = y_scale_fit*min_scale_percentage
-   
-    # find the insignificant boundary
-    if True:
-        insignificant_boundary = np.nonzero(y_scale_fit/min_scale_percentage > insignificant_scale_multiplier*width)[0]
-        if len(insignificant_boundary) != 0:
-            insignificant_boundary = insignificant_boundary[0]
-        else:  
-            insignificant_boundary = np.inf
-        
-        mass_boundary = np.nonzero(wa.time > insignificant_scale_mass)[0]
-        if len(mass_boundary) != 0:
-            insignificant_boundary = max(insignificant_boundary, mass_boundary[0])
-        else:  
-            insignificant_boundary = np.inf
-    else:
-        insignificant_boundary = 0
-        
-    if not np.isinf(insignificant_boundary): print(wa.time[insignificant_boundary], coeff[1], coeff[0])
+    #print(coeff)
     #return wa.time, wa.scales, ridge, start_ridges    
-    
-    # delete by scale above the insignificant boundary
-    for ind, (row, col, ridge_max, max_row, loc, length, noise) in np.ndenumerate(start_ridges):
-        if loc < insignificant_boundary: continue
-        
-        if scales[max_row] < y_scale_fit[loc]:
-            delete_ridge(ridge, row, col)
-            start_ridges['row'][ind] = -1
-    
-    start_ridges = start_ridges[start_ridges['row'] != -1]
-    
-    # delete multiplied snr below the insignificant boundary (because scale not high enough to be measured but peaks should be clear in this area) 
-    for ind, (row, col, ridge_max, max_row, loc, length, noise) in np.ndenumerate(start_ridges[start_ridges['loc'] < insignificant_boundary]):
-        # delete too small for multiplied snr
-        print(wa.time[loc], ridge_max, noise, insignificant_snr_multiplier*snr)
-        if ridge_max / noise < insignificant_snr_multiplier*snr: 
-            delete_ridge(ridge, row, col)
-            start_ridges['row'][ind] = -1
-    
-    start_ridges = start_ridges[start_ridges['row'] != -1]
     
     for ind, (row, col, ridge_max, max_row, loc, length, noise) in np.ndenumerate(start_ridges):    
         while ridge['from'][row, col] != -1:
