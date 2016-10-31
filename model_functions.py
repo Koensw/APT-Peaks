@@ -8,23 +8,24 @@ def gauss_func(m, S):
     f = np.exp(-1/2*(m/S)**2)
     return c*f
 
-def apt_model(m, m_0, B, C):
+def apt_model(t, t_0, B, C):
     B = abs(B)
     C = abs(C)
     
-    valid_range = 10
+    valid_range = np.inf
     
-    y1 = np.zeros(np.count_nonzero(m < m_0))
-    norm = (B**2*C)/(2*(1+B))*np.exp(B)#(B**4*C**2)/(8*(3+B*(3+B)))*np.exp(B)
-    mask = (m_0<=m) & (m<=m_0+valid_range)
-    y2 = norm*np.exp(-B*np.sqrt(1+C*(np.sqrt(m[mask])-np.sqrt(m_0)))) # np.sqrt(m[mask])-np.sqrt(m_0) # np.sqrt(m[mask]-m_0)
+    y1 = np.zeros(np.count_nonzero(t < t_0))
     
-    y3 = np.zeros(np.count_nonzero(m > m_0+valid_range))
-    #y3 = []
+    norm = (B**2*C)/(2*(1+B))*np.exp(B) #(B**2*C)/(2*(1+B))*np.exp(B)#(B**4*C**2)/(8*(3+B*(3+B)))*np.exp(B)
+    mask = (t_0<=t) & (t<=t_0+valid_range)
+    y2 = norm*np.exp(-B*np.sqrt(1+C*(t[mask]-t_0))) # np.sqrt(m[mask])-np.sqrt(m_0) # np.sqrt(m[mask]-m_0)
+
+    y3 = np.zeros(np.count_nonzero(t > t_0+valid_range))
     
     y = np.concatenate((y1, y2, y3))
     return y
 
+# TODO SWITCH ALL TO TIME UNITS INSTEAD
 def apt_log_model(m, m_0, B, C):
     B = abs(B)
     C = abs(C)
@@ -60,3 +61,14 @@ def uncertain_nonlinear_apt_model(m, m_0, S, A1, B1):
 def simple_log_model(x, A, B):
     #x = x.astype(np.complex64)
     return A-1/0.05*np.sqrt(1+B*np.sqrt(x))
+    
+def custom_model(t, t_0, tm_func, model_func):
+    y1 = np.zeros(np.count_nonzero(t-t_0 < tm_func[0]))
+    y3 = np.zeros(np.count_nonzero(t-t_0 > tm_func[-1]))
+    
+    idxs = np.searchsorted(tm_func, t[(tm_func[0] <= t-t_0) & (t-t_0 <= tm_func[-1])]-t_0)
+    y2 = model_func[idxs]
+    
+    y = np.concatenate((y1, y2, y3))
+    #print(len(y), len(t))
+    return y
