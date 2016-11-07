@@ -1,6 +1,16 @@
+"""
+Functions to read APT data
+"""
+
 import numpy as np
 import re
 
+"""
+Read a pos file
+
+file_name: name of the file to read 
+count: amount of records to read (or -1 for all)
+"""
 def read_pos(file_name, count=-1):
     dt = np.dtype([('x','>f4'),
                    ('y', '>f4'),
@@ -9,6 +19,12 @@ def read_pos(file_name, count=-1):
     
     return np.fromfile(file_name, dt, count, "")
     
+"""
+Read an epos file
+
+file_name: name of the file to read 
+count: amount of records to read (or -1 for all)
+"""
 def read_epos(file_name, count=-1):
     dt = np.dtype([('x','>f4'),
                    ('y', '>f4'),
@@ -24,6 +40,11 @@ def read_epos(file_name, count=-1):
     
     return np.fromfile(file_name, dt, count, "")
     
+"""
+Read an rrng file and returns a tuple (start_range, end_range, atom_type, amount)
+
+file_name: name of the file to read 
+"""
 def read_rrng(file_name):
     lst = []
     with open(file_name) as file:

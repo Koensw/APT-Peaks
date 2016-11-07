@@ -1,13 +1,24 @@
+"""
+Collection of functions to model APT peaks
+
+Experimental and mostly undocumenteds
+"""
+
 from scipy import signal
 import numpy as np
 
+"""
+Gauss function 
+"""
 def gauss_func(m, S):
-    #print(1/(s**2),m_0,m)
     c = 1/(np.sqrt(2*np.pi*S**2))
-    np.seterr(all="ignore")
-    f = np.exp(-1/2*(m/S)**2)
+    with np.errstate(all="ignore"):
+        f = np.exp(-1/2*(m/S)**2)
     return c*f
 
+"""
+Standard APT model using Arrhenius law and approximated temperature model
+"""
 def apt_model(t, t_0, B, C):
     B = abs(B)
     C = abs(C)
@@ -25,6 +36,9 @@ def apt_model(t, t_0, B, C):
     y = np.concatenate((y1, y2, y3))
     return y
 
+"""
+Logarithmic APT model using Arrhenius law and approximated temperature model
+"""    
 # TODO SWITCH ALL TO TIME UNITS INSTEAD
 def apt_log_model(m, m_0, B, C):
     B = abs(B)
@@ -37,6 +51,9 @@ def apt_log_model(m, m_0, B, C):
     y = np.concatenate((y1, y2))
     return y    
     
+"""
+APT model convolved with a gauss function to model uncertainty
+"""
 def uncertain_apt_model(m, m_0, S, B, C):
     g = gauss_func(m-m[len(m)/2]+1e-8, S)
     a = apt_model(m, m_0, B, C)
@@ -45,23 +62,36 @@ def uncertain_apt_model(m, m_0, S, B, C):
     #print(np.argmax(a)-np.argmax(c))
     return np.roll(c, -1)
 
+"""
+Alternative APT model from Ryan VanderPlas
+"""
+# FIXME: this does not work
 def nonlinear_apt_model(m, m_0, A1, B1):
     t = np.sqrt(m[m>=m_0]-m_0)
     y1 = np.zeros(np.count_nonzero(m < m_0))
-    y2 = A1**(np.exp(-B1*t)) #+A1**(B1/(B2-B1)*(np.exp(-B1*t)-np.exp(-B2*t)))*A2**np.exp(-B2*t)
+    y2 = A1**(np.exp(-B1*t))+A1**(B1/(B2-B1)*(np.exp(-B1*t)-np.exp(-B2*t)))*A2**np.exp(-B2*t)
     
     y = np.concatenate((y1, y2))
     return y
 
+"""
+Alternative APT model convolved with a gauss function for uncertainty
+"""
 def uncertain_nonlinear_apt_model(m, m_0, S, A1, B1):
     g = gauss_func(m-m[len(m)/2]+1e-8, S)
     a = nonlinear_apt_model(m, m_0, A1, B1)
     return signal.fftconvolve(a, g, mode="same")*(m[1]-m[0])
     
-def simple_log_model(x, A, B):
-    #x = x.astype(np.complex64)
-    return A-1/0.05*np.sqrt(1+B*np.sqrt(x))
+"""
+Simple APT logarithmic model with standard value from literature
+"""    
+# TODO: switch all to time units
+def simple_log_model(m, A, B):
+    return A-1/0.05*np.sqrt(1+B*np.sqrt(m))
     
+"""
+Custom model for APT (normalized)
+"""
 def custom_model(t, t_0, tm_func, model_func):
     y1 = np.zeros(np.count_nonzero(t-t_0 < tm_func[0]))
     y3 = np.zeros(np.count_nonzero(t-t_0 > tm_func[-1]))

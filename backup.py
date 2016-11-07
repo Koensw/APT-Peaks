@@ -1,3 +1,7 @@
+"""
+Backup of all kinds of random code
+"""
+
 # DWT
 #plt.figure(2)
 #plt.clf()
@@ -559,3 +563,219 @@ def mod_func(m, m_0, S, A1, B1):
     #a = a[:len(m)]
     a = apt_func(m, m_0, A1, B1)
     return signal.fftconvolve(a, g, mode="same")*(m[1]-m[0])
+    
+#mult = mult[:100]
+from matplotlib import colors
+import matplotlib.cm as cm
+from apt_peaks.peaks import find_ridge_lines
+
+#start_ridges = np.sort(start_ridges, order=['max'])[::-1]
+start_ridges = np.sort(start_ridges, order=['loc'])
+print(len(start_ridges))
+
+peak_ignore = np.empty(shape=(start_ridges.shape[0],start_ridges.shape[0]*start_ridges.shape[0]), dtype=np.float32)
+peak_ignore[:] = -1
+peak_ignore_cnt = np.zeros(shape=start_ridges.shape[0], dtype=np.int32)
+
+plt.figure(8)
+plt.clf()
+
+for index, lvl in enumerate(peak_intervals):
+    if (index % 2) == 1: continue
+   
+    if peak_intervals[index+1] > 100: continue
+    print(peak_intervals[index], peak_intervals[index+1])
+
+    plt.axvspan(peak_intervals[index], peak_intervals[index+1], color='y')
+
+#plt.yscale('sqrt')
+#plt.xscale('sqrt')    
+
+#diffs = set()
+#diffsps = 100
+#for x in range(0, len(start_ridges)):
+#    for y in range(0, len(start_ridges)):
+#        srx = mass[start_ridges[x]['loc']]
+#       sry = mass[start_ridges[y]['loc']]
+        #if sry > srx: srx, sry = sry, srx
+#        src = np.sqrt(srx)-np.sqrt(sry)
+        
+#        diffs.add(int(abs(src*diffsps)))
+        
+#print(diffs)
+#return 
+
+cmass = mass
+print(mass, cmass)
+#print(cmass[start_ridges['loc']])
+#return
+
+#print(start_ridges['max'])
+
+for x in range(0, len(start_ridges)):
+    for y in range(0, len(start_ridges)):
+        if start_ridges[y]['max'] < 25 or start_ridges[x]['max'] < 25: continue
+        #print(start_ridges[x]['loc'])
+        
+        srx = cmass[start_ridges[x]['loc']]
+        sry = cmass[start_ridges[y]['loc']]
+        #print(srx, sry)
+        #if sry > srx: srx, sry = sry, srx
+        src = np.sqrt(srx)-np.sqrt(sry)
+        if np.isclose(src, 0): continue
+            
+        sri = np.nonzero(np.sqrt(xe[:-1])-src < 0)[0]
+        if len(sri) == 0: sri = 0
+        else: sri = sri[-1]
+        #print(srx, sry, src, sri)
+        
+        #print(src)
+        plt.plot(xe[sri:-1], (np.sqrt(xe[sri:-1])-src)**2, color='r', linewidth=2)
+        
+        for i in range(0, len(start_ridges)):
+            loc = start_ridges[i]['loc']
+            if np.sqrt(cmass[loc]) < src: continue
+            sli = np.searchsorted(cmass, (np.sqrt(cmass[loc])-src)**2)
+            if sli == len(cmass): continue
+            peak_ignore[i][peak_ignore_cnt[i]] = mass[sli]
+            peak_ignore_cnt[i] = peak_ignore_cnt[i] + 1
+
+for i in range(0, len(start_ridges)):
+    peak_ignore[i] = np.sort(peak_ignore[i])
+    print(cmass[start_ridges[i]['loc']], peak_ignore[i][peak_ignore[i] != -1])
+    
+data_multi['m'] = data[data['Mhit'] != 1]['m']
+    
+mult = data_multi.copy()
+mult['m'] = -1
+#mult = mult[:100]
+
+plt.pcolormesh(xe[:-1], ye[:-1], ht, norm=colors.LogNorm())
+plt.ylim([0, 100])
+plt.xlim([0, 100])
+#return 0
+#return 0
+
+corr_x = np.zeros(mult.shape)
+corr_y = np.zeros(mult.shape)
+cnt = 0
+
+tmp_cnt = 0
+for i, el in enumerate(mult):
+    if el['Mhit'] == 0: continue
+                
+    for j in range(0,el['Mhit']):
+        if data_multi[i+j]['m'] > 210: continue
+            
+        ins_idx = np.searchsorted(peak_intervals, data_multi[i+j]['m'])
+        if (ins_idx % 2) != 1:
+            continue
+        pk_idx = np.searchsorted(mass[start_ridges['loc']], data_multi[i+j]['m'])
+        if pk_idx == len(start_ridges['loc']) or (pk_idx and data_multi[i+j]['m']-mass[start_ridges['loc'][pk_idx-1]] < mass[start_ridges['loc'][pk_idx]]-data_multi[i+j]['m']):
+            pk_idx = pk_idx-1
+            
+        for k in range(0, el['Mhit']):
+            if data_multi[i+k]['m'] > 210: continue
+              
+            ins_idx = np.searchsorted(peak_ignore[pk_idx], data_multi[i+k]['m'])
+            #print(len(peak_ignore[ins_idx/2]))
+
+            min_sz = np.inf
+            if ins_idx: min_sz = min(min_sz, data_multi[i+k]['m']-peak_ignore[pk_idx][ins_idx-1])
+            if ins_idx!=len(peak_ignore[pk_idx]): min_sz = min(min_sz, peak_ignore[pk_idx][ins_idx]-data_multi[i+k]['m'])
+                
+            #print(min_sz, data_multi[i+k]['m'], peak_ignore[pk_idx][ins_idx-1])
+            #break
+            if min_sz < 0.75:
+                tmp_cnt = tmp_cnt + 1
+                continue
+            
+            mult[i+k]['m'] = data_multi[i+k]['m']
+
+            # extend if almost full
+            if cnt+2 > corr_x.shape[0]:
+                corr_x = np.pad(corr_x, (0, corr_x.shape[0]), 'constant', constant_values=0)
+                corr_y = np.pad(corr_y, (0, corr_x.shape[0]), 'constant', constant_values=0)
+
+            corr_x[cnt] = mult[i+j]['m']
+            corr_y[cnt] = mult[i+k]['m']
+
+            cnt = cnt+1
+
+            #corr_x[cnt] = np.sqrt(mult[i+k]['m'])
+            #corr_y[cnt] = np.sqrt(mult[i+j]['m'])
+
+print(tmp_cnt)
+#return 0
+corr_x = corr_x[:cnt]
+corr_y = corr_y[:cnt]
+
+#plt.scatter(corr_x, corr_y)
+
+ht2, xe2, ye2 = np.histogram2d(corr_x, corr_y, np.arange(0,10, 0.01)**2)
+ht2 = np.transpose(ht2)
+
+#plt.pcolormesh(xe2[:-1], ye2[:-1], ht2, norm=colors.LogNorm())
+#plt.plot([10.75, 100], [0, 46.5], color='m', linestyle='-', linewidth=1)
+#plt.plot([42, 69], [69, 42], color='r', linestyle='-', linewidth=1)
+#print((np.sqrt(xe[:-1])-src))
+#plt.plot(xe[sri:-1], (np.sqrt(xe[sri:-1])-src)**2)
+#X = Y = None
+
+            
+print(len(mult))
+mult = mult[mult['m'] > 0]
+print('-> ', len(mult))
+
+mult_bins, width = bin_data(mult['m'], 0.001)
+mult_bins = cap_bins(mult_bins, 0, 140)
+mult_bins = zero_extend(mult_bins, width)
+
+nmass, nscales, nridge, nstart_ridges = find_peaks_cwt(mult_bins, width, 2, 
+                                                       min_length_percentage=0.4, 
+                                                       peak_separation=0.0, gap_thresh = 2)
+
+plt.figure(2)
+plt.clf()
+f, axarr = plt.subplots(2, sharex=True, num=2)
+axarr[0].plot(mult_bins['edge']+width/2, mult_bins['height'], color='b')
+axarr[0].set_yscale('log')
+
+for rdg in nstart_ridges:
+    axarr[0].axvspan(nmass[rdg['loc']]-nscales[rdg['max_row']], nmass[rdg['loc']]+nscales[rdg['max_row']], color='y')
+
+nridge_log = nridge['max']
+nridge_log[nridge_log < 1e-4] = np.nan
+nridge_log = np.log(nridge_log)
+axarr[0].set_ylim([10**-1, 10**3])
+
+axarr[1].contourf(nmass, nscales, nridge_log, 100)
+axarr[1].scatter(nmass[nstart_ridges['loc']], nscales[nstart_ridges['max_row']])
+axarr[1].set_yscale('log', basey=2)  
+
+#delete already known
+mstart_ridges = np.ndarray(shape=start_ridges.shape[0]+nstart_ridges.shape[0], dtype=start_ridges.dtype)
+mstart_ridges[:start_ridges.shape[0]] = start_ridges
+mstart_ridges_cnt = start_ridges.shape[0]
+
+np.seterr(under='ignore')
+for rdg in nstart_ridges:    
+    ins_idx = np.searchsorted(mass[start_ridges['loc']], nmass[rdg['loc']])
+    min_sz = np.inf
+    if ins_idx != len(start_ridges) and mass[start_ridges['loc'][ins_idx]] - nmass[rdg['loc']] < min_sz: 
+        min_sz = mass[start_ridges['loc'][ins_idx]] - nmass[rdg['loc']]
+    if ins_idx and nmass[rdg['loc']] - mass[start_ridges['loc'][ins_idx-1]] < min_sz:
+        min_sz = nmass[rdg['loc']] - mass[start_ridges['loc'][ins_idx-1]]
+        ins_idx = ins_idx-1
+    
+    print(min_sz)
+    if min_sz > scales[start_ridges['max_row'][ins_idx]]: 
+        axarr[0].axvspan((nmass[rdg['loc']]-nscales[rdg['max_row']]), (nmass[rdg['loc']]+nscales[rdg['max_row']]), color='r')
+        mstart_ridges[mstart_ridges_cnt] = rdg
+        mstart_ridges_cnt = mstart_ridges_cnt+1
+        print(nmass[rdg['loc']])
+    else:
+        axarr[0].axvspan((nmass[rdg['loc']]-nscales[rdg['max_row']]), (nmass[rdg['loc']]+nscales[rdg['max_row']]), color='y')
+        
+mstart_ridges = mstart_ridges[:mstart_ridges_cnt]
+np.sort(mstart_ridges, order=['loc'])
