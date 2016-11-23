@@ -3,28 +3,29 @@ Collection of algorithms for peak detection
 """
 
 import numpy as np
-import matplotlib.pyplot as plt
-from scipy import signal
+#import matplotlib.pyplot as plt
+from scipy import signal #multiple signal functions from scipy
 
-from scipy import signal, optimize
+#from scipy import signal, optimize
 from numpy.polynomial import polynomial as nppoly
-from wavelets import WaveletAnalysis, Ricker, Morlet
+from wavelets import WaveletAnalysis, Ricker
 
 import sortedcontainers
 
 #from apt_peaks.wavelet_functions import UnbiasedRicker, HalfDOG, Poisson, APTFunction2
-from .prepare import bin_data, cap_bins, zero_extend
+from prepare import bin_data, cap_bins, zero_extend
     
 """
-Return the local maxima over certain window
+Return the local maxima over certain window (window_size)
 
 (REQUIRED)
-height: input heights to find maxima on
-window_size: length of the window to find local maxima on
+height: input heights to find maxima on (1D list)
+window_size: length of the window to find local maxima on (integer normalized to bin units)
 
 (OPTIONAL)
-eps: smallest float that should be uniquely identified 
-initialization_width: optimization parameter to pre-search maxima 
+eps: smallest float that should be uniquely identified (precision due to conversion to integer)
+initialization_width: optimization parameter to pre-search maxima
+    (simplifies spectra larger than 10 bins by looking for all maxima in each 10 bin before, scaling is always done to limit repercussions)
 min_peak_height: minimum height of local maxima to consider relevant
 """   
 def find_local_maxima(height, window_size, eps = 10**-6, initialization_width = 10, min_peak_height = -np.inf):  
@@ -32,22 +33,23 @@ def find_local_maxima(height, window_size, eps = 10**-6, initialization_width = 
     bst = sortedcontainers.SortedSet()
     
     # initialize mask of final peak locations
-    mask = np.zeros(shape=height.shape, dtype=(np.bool))
+    mask = np.zeros(shape=height.shape, dtype=(np.bool)) #Array of FALSE with same length as height
     
     # minimize the peaks to search for by pre-searching maxima at a lower window size
     # NOTE: this algorithm scales with the window size and is therefore not applicable at large window sizes
+    # line picks max in every 10 bins -> gives list of maxima in all dimenions
     pos_peaks = signal.argrelmax(height, order=min(initialization_width, max(1, window_size//2)))[0]
      
     # loop through the remaining candidate peaks
-    cnt_el = None
+    cnt_el = None #NULL pointer like
     bef = 0
-    for idx, pk_idx in np.ndenumerate(pos_peaks):
+    for pk_idx in pos_peaks:
         # convert the peak height to an integer using the input precision 
         ht = height[pk_idx]
-        if np.isnan(ht): ht = 0
+        if np.isnan(ht): ht = 0 #makes sure logarithmic spectra "work"
         ht = int(ht / eps)
         
-        # add the current peak to the set
+        # add the current peak to the set -> bst will automatically sort itself after adding
         bst.add((ht, pk_idx))
         
         # remove all peaks that now fall outside the window
@@ -282,13 +284,13 @@ def find_ridge_lines(cwt, width, left_window, right_window, gap_thresh = 2, nois
 Find APT peaks through CWT, ridge lines and filtering
 
 (REQUIRED)
-bins: mass histogram bins (need linear scaling!)
+bins: mass histogram bins (need linear scaling!) (1D list)
 width: the width of the bins
 snr: required signal-to-noise ratio for significant peaks
 
 (OPTIONAL)
 min_length_percentage: minimum percentage of scales where the peak should exist
-peak_range: tuple of two elements the minimum and maximum value of a valid peak
+peak_range: looks for peaks in this range (now from 0.5 to inf -> so peaks before 0.5 are removed)
 peak_separation: an optional distance between peaks (peaks below this threshold are merged)
 gap_scale: width between scales given in units of 2^width having width as linear scale with gap_scale separation
 gap_thresh: threshold of allowed gap for levels where peaks are not present before saving it as new ridge line (depends on the amount of scales used)
@@ -297,12 +299,12 @@ noise_window: window on real scale to compute the noise
 def find_peaks_cwt(bins, width, snr, min_length_percentage = 0.4, 
                    peak_range = (0.5, np.inf), peak_separation = 0, 
                    gap_scale = 0.05, gap_thresh = 2, noise_window = 1.0):
-    # select the wavelet to use - the ricker (mexican hat) wavelet gives good results
+    # select the wavelet object to use - the ricker (mexican hat) wavelet gives good results
     wavelet = Ricker()
 
     # select the minimum and maximum applicable scale levels
     min_scale = np.log2(4*width)
-    max_scale = np.log2(2)
+    max_scale = np.log2(2) #this are 2 amu at the moment
     
     # compute the logarithm of the height as the CWT performs better here on typical spectra
     height_log = bins['height'].astype(np.float)
@@ -315,12 +317,22 @@ def find_peaks_cwt(bins, width, snr, min_length_percentage = 0.4,
     scales = wa.scales = 2**(np.arange(min_scale, max_scale, gap_scale)) # build a set of scales
     # apply the continous wavelet transform and keep the real part (in theory there should be no imaginary part)
     cwt = np.real(wa.wavelet_transform) 
-            
-    ridge, peak_info = find_ridge_lines(cwt, width, scales/2, scales/2, gap_thresh, noise_window)        
+    
+    #ridge is 2D array of tuples where each tuple contains
+    #(cwt-intensity, local-max-yes-no, previous-point-on-line, scale-gap-to-previous-point, start-of-ridge, current-length-of-ridge)
+    #peak_info 1D list of tuples where each tuple contains
+    #(scale-of-ridge-start(row), mass-of-ridge-start(col), start-of-ridge, max-length-of-ridge, max-intensity, scale-of-max-intensity)
+    #called with: cwt-object (3D array scale, mass, intensities), bin-width, left and right window for ridge lines
+    #scale levels that it skips before ridge line ends, window to check noise at lowest scale level)
+    ridge, peak_info = find_ridge_lines(cwt, width, scales/2, scales/2, gap_thresh, noise_window)
+    #limiting what ridge saves is saving a LOT OF MEMORY
     
     # correct maxima for snr and push them down deleting any that does not work
     for ind, (row, col, ridge_max, max_row, loc, length, noise) in np.ndenumerate(peak_info):
-        # delete out of range, too low snr or too low length
+        # delete peaks that:
+        # are not in parameter peak_range or
+        # dont appear as a single line for enough scale or
+        # too low snr (noise comes from wavelet estimate)
         if not (peak_range[0] <= wa.time[loc] <= peak_range[1]) or length < min_length_percentage*len(scales) or ridge_max / noise < snr : 
             delete_ridge(ridge, row, col)
             peak_info['row'][ind] = -1
@@ -332,8 +344,9 @@ def find_peaks_cwt(bins, width, snr, min_length_percentage = 0.4,
     scale_row = np.zeros(shape=peak_info.shape, dtype=np.int32)
     scale_row_strength = np.zeros(shape=peak_info.shape, dtype=np.int32)
     for ind, (row, col, ridge_max, max_row, loc, length, noise) in np.ndenumerate(peak_info):
-        scale_row[ind] = 0
-
+        #scale_row[ind] = 0
+        
+        #traversing down the ridge
         while ridge['from'][row, col] != -1:
             if abs(wa.time[loc] - wa.time[col]) < 10*width and not np.isclose(ridge['max'][row, col], ridge_max):
                 scale_row[ind] = row
@@ -343,9 +356,11 @@ def find_peaks_cwt(bins, width, snr, min_length_percentage = 0.4,
             col = ridge['from'][row, col]
             row = row-1    
                       
-    # delete all that do not have expected range by estimating their uncertainty behaviour    
+    # delete all that do not have expected range by estimating their uncertainty behaviour
+    # coeff is tuole of 2 (steepness of a line fit, const. line fit=0)
     coeff = nppoly.polyfit(np.sqrt(wa.time[peak_info['loc']]),scales[scale_row],[1],w=peak_info['max'])
     #print(coeff)
+    #resulting linear fit
     y_scale_fit = coeff[1]*np.sqrt(wa.time)+coeff[0]
    
     # find the cwt coefficient at the nearest scale level and compare to snr
@@ -355,9 +370,14 @@ def find_peaks_cwt(bins, width, snr, min_length_percentage = 0.4,
         strength = 0
         trow = row
         tcol = col
+        #if the expected row is never reached (peak only exists on higher scales) -> strength stays 0
+        #after this loop peaks that dont exist at the expected strength are 0 and peaks that exist have their intensity in strength
         while ridge['from'][trow, tcol] != -1:
             if scales[trow] < exp_scale:
-                if trow != row or exp_scale > max_scale: strength = cwt[trow,tcol]
+                #if the first row on the traverse down is below the scale -> strength stays 0
+                #if exp_scale > max_scale than the fit is bad and we just keep everything
+                if trow != row or exp_scale > max_scale:
+                    strength = cwt[trow,tcol]
                 break
             
             tcol = ridge['from'][trow, tcol]
@@ -365,6 +385,7 @@ def find_peaks_cwt(bins, width, snr, min_length_percentage = 0.4,
             
         #print(wa.time[loc], exp_scale, ridge_max, strength, noise) #, length, scales[trow], trow)
        
+        #kicks out peaks that dont have enough signal at the expected scale level at this point in the mass spectrum
         if strength/noise < snr:
             # delete if not significant at the expected scale level
             delete_ridge(ridge, row, col)

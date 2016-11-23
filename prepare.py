@@ -19,7 +19,7 @@ def bin_data(data, accuracy=0.1):
     vals, counts = np.unique(idxs, return_counts=True)
     edges = min_element+vals*(accuracy/2);
     
-    # crate data type containing a height and edge for all bins
+    # create data type containing a height and edge for all bins
     dt = np.dtype([('height', np.int64), ('edge', np.float64)])
     return np.rec.fromarrays([counts, edges], dt), accuracy/2
     
@@ -30,9 +30,9 @@ bins: list of bins returned by bin_data
 min: minimum edge for a bin
 max: maximum edge for a bin
 """
-def cap_bins(bins, min=-np.inf, max=np.inf):
-    mask = min <= bins['edge']  
-    mask &= bins['edge'] <= max
+def cap_bins(bins, mini=-np.inf, maxi=np.inf):
+    mask = mini <= bins['edge']
+    mask &= bins['edge'] <= maxi
     return bins[mask]
     
 """
