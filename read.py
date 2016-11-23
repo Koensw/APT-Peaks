@@ -6,40 +6,40 @@ import numpy as np
 import re
 
 """
-Read a pos file
+Read a pos file and returns a list of dtype defined below
 
 file_name: name of the file to read 
 count: amount of records to read (or -1 for all)
 """
 def read_pos(file_name, count=-1):
     #np.dtype defines a numpy data type
-    dt = np.dtype([('x','>f4'),
-                   ('y', '>f4'),
-                   ('z', '>f4'),
-                   ('m', '>f4')])
+    dt = np.dtype([('x','>f4'),         # x position
+                   ('y', '>f4'),        # y position
+                   ('z', '>f4'),        # z position
+                   ('m', '>f4')])       # mass
     
     #numpy read the binary file typecasting to dt and returning an array of dt's
     return np.fromfile(file_name, dt, count, "")
     
 """
-Read an epos file
+Read an epos file and returns a list of dtype defined below
 
 file_name: name of the file to read 
 count: amount of records to read (or -1 for all)
 """
 def read_epos(file_name, count=-1):
     #np.dtype defines a numpy data type
-    dt = np.dtype([('x','>f4'),
-                   ('y', '>f4'),
-                   ('z', '>f4'),
-                   ('m', '>f4'),
-                   ('ToF', '>f4'),
-                   ('Vdc', '>f4'),
-                   ('Vpulse', '>f4'),
-                   ('Dx', '>f4'),
-                   ('Dy', '>f4'),
-                   ('Lpulse', '>i4'),
-                   ('Mhit', '>i4')])
+    dt = np.dtype([('x','>f4'),         # x position
+                   ('y', '>f4'),        # y position
+                   ('z', '>f4'),        # z position
+                   ('m', '>f4'),        # mass
+                   ('ToF', '>f4'),      # time of flight
+                   ('Vdc', '>f4'),      # dc voltage
+                   ('Vpulse', '>f4'),   # pulse voltage
+                   ('Dx', '>f4'),       # impact x on detector
+                   ('Dy', '>f4'),       # impact y on detector
+                   ('Lpulse', '>i4'),   # length of pulse
+                   ('Mhit', '>i4')])    # amount of multi hits
     
     #numpy read the binary file typecasting to dt and returning an array of dt's
     return np.fromfile(file_name, dt, count, "")

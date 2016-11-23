@@ -3,20 +3,17 @@ Collection of algorithms for peak detection
 """
 
 import numpy as np
-#import matplotlib.pyplot as plt
 from scipy import signal #multiple signal functions from scipy
 
-#from scipy import signal, optimize
 from numpy.polynomial import polynomial as nppoly
 from wavelets import WaveletAnalysis, Ricker
 
 import sortedcontainers
 
-#from apt_peaks.wavelet_functions import UnbiasedRicker, HalfDOG, Poisson, APTFunction2
 from prepare import bin_data, cap_bins, zero_extend
     
 """
-Return the local maxima over certain window (window_size)
+Return 1D list of the indexes of the local maxima over a certain window size
 
 (REQUIRED)
 height: input heights to find maxima on (1D list)
@@ -92,6 +89,7 @@ row: starting row of the ridge
 col: starting column of the ridge
 """       
 def delete_ridge(ridge, row, col):
+    # set all values of the ridge array to the empty value
     ridge['loc'][row, col] = -1
     ridge['max'][row, col] = 0
     ridge['length'][row, col] = 0
@@ -118,7 +116,7 @@ gap_thresh: threshold of allowed gap for levels where peaks are not present befo
 noise_window: window on real scale to compute the noise
 min_noise: minimum level of noise
 """
-#TODO gap_tresh should be in real differences or everything should be in bin differences (thus not using the width) 
+#TODO: gap_tresh should be in real differences or everything should be in bin differences (thus not using the width) 
 def find_ridge_lines(cwt, width, left_window, right_window, gap_thresh = 2, noise_window = 0.5, min_noise = 0.1):
     # convert real window to discrete window over the bins
     left_window_list = np.array(left_window/width, dtype=np.float64, ndmin=1, copy=False)
@@ -131,14 +129,18 @@ def find_ridge_lines(cwt, width, left_window, right_window, gap_thresh = 2, nois
     # convert noise window to discrete window over the bins
     noise_window = int(noise_window/width)
  
-    # define the stucture containing the ridge information and initialize it
-    dtype = np.dtype([('cwt', np.float64),
-                      ('peak', np.bool),
-                      ('from', np.int64),
-                      ('gap', np.int64),
-                      ('max', np.float64),
-                      ('loc', np.int64),
-                      ('length', np.int)])
+    # define the stucture containing the ridge information and initialize it 
+    # the ridge structure contain a tuple with information for every combination of mass and scale
+    # row is used to loop over the scales and column to loop over the masses
+    dtype = np.dtype([('cwt', np.float64),          # the CWT coefficients (copy of argument cwt)
+                      ('peak', np.bool),            # boolean array indicating if the index is a maximum at the specific mass and scale
+                      ('from', np.int64),           # indiciate the column on the previous row for this ridge line (or -1 if first column)
+                      ('gap', np.int64),            # difference where the peak at (row-gap,col) was last matched
+                      ('max', np.float64),          # maximum CWT coefficient on the ridge line so far
+                      ('loc', np.int64),            # mass location of the ridge line (the mass on the lowest scale level without optimisation)
+                      ('length', np.int)])          # length of the ridge line
+    
+    # initialize array and set default values
     ridge = np.ndarray(shape=cwt.shape, dtype=dtype)
     ridge['length'] = 0
     ridge['peak'] = False
@@ -152,13 +154,13 @@ def find_ridge_lines(cwt, width, left_window, right_window, gap_thresh = 2, nois
     last_peaks = np.empty((0), dtype=np.int32)
     
     # define and initialize final list of possible peaks (with their starting point of the ridge) 
-    dtype = np.dtype([('row', np.int32),
-                      ('col', np.int32),
-                      ('max', np.float32), 
-                      ('max_row', np.int32), 
-                      ('loc', np.int32),
-                      ('length', np.int32),
-                      ('noise', np.float32)])      
+    dtype = np.dtype([('row', np.int32),            # the row index in the list of ridges where the ridge line start (represents the index of the maximum scale level)
+                      ('col', np.int32),            # the column index in the list of ridges where the ridge line start (represents the index of mass location at the maximum scale level)
+                      ('max', np.float32),          # maximum CWT coefficient on the associated ridge line (represent the strength of the peak)
+                      ('max_row', np.int32),        # scale where the maximum CWT coefficient is located (related to the best-matching window size)
+                      ('loc', np.int32),            # mass of the peak (the mass on the lowest scale level without optimisation)
+                      ('length', np.int32),         # length of the ridge line associated with the peak
+                      ('noise', np.float32)])       # estimated strength of the noise around the peak
     peak_info = np.empty(cwt.shape[1], dtype=dtype)
     peak_info_idx = 0
     
@@ -278,6 +280,8 @@ def find_ridge_lines(cwt, width, left_window, right_window, gap_thresh = 2, nois
             
     # sort the ridges on starting location and return them
     peak_info = np.sort(peak_info, order="loc")
+    
+    # return the 2D ridge array and the 1D list of peak and associated ridges
     return ridge, peak_info
 
 """
@@ -318,21 +322,21 @@ def find_peaks_cwt(bins, width, snr, min_length_percentage = 0.4,
     # apply the continous wavelet transform and keep the real part (in theory there should be no imaginary part)
     cwt = np.real(wa.wavelet_transform) 
     
-    #ridge is 2D array of tuples where each tuple contains
+    #ridge is 2D array of tuples where each tuple contains (see function above)
     #(cwt-intensity, local-max-yes-no, previous-point-on-line, scale-gap-to-previous-point, start-of-ridge, current-length-of-ridge)
-    #peak_info 1D list of tuples where each tuple contains
+    #peak_info 1D list of tuples where each tuple contains (see function above)
     #(scale-of-ridge-start(row), mass-of-ridge-start(col), start-of-ridge, max-length-of-ridge, max-intensity, scale-of-max-intensity)
     #called with: cwt-object (3D array scale, mass, intensities), bin-width, left and right window for ridge lines
     #scale levels that it skips before ridge line ends, window to check noise at lowest scale level)
     ridge, peak_info = find_ridge_lines(cwt, width, scales/2, scales/2, gap_thresh, noise_window)
-    #limiting what ridge saves is saving a LOT OF MEMORY
+    #TODO: limiting what ridge saves is saving a LOT OF MEMORY
     
     # correct maxima for snr and push them down deleting any that does not work
     for ind, (row, col, ridge_max, max_row, loc, length, noise) in np.ndenumerate(peak_info):
         # delete peaks that:
-        # are not in parameter peak_range or
-        # dont appear as a single line for enough scale or
-        # too low snr (noise comes from wavelet estimate)
+        # - are not in parameter peak_range or
+        # - dont appear as a single line for enough scale or
+        # - too low snr (noise comes from wavelet estimate)
         if not (peak_range[0] <= wa.time[loc] <= peak_range[1]) or length < min_length_percentage*len(scales) or ridge_max / noise < snr : 
             delete_ridge(ridge, row, col)
             peak_info['row'][ind] = -1
@@ -343,11 +347,10 @@ def find_peaks_cwt(bins, width, snr, min_length_percentage = 0.4,
     # find a guess of the maximum row that does not include the asymmetric behavior
     scale_row = np.zeros(shape=peak_info.shape, dtype=np.int32)
     scale_row_strength = np.zeros(shape=peak_info.shape, dtype=np.int32)
-    for ind, (row, col, ridge_max, max_row, loc, length, noise) in np.ndenumerate(peak_info):
-        #scale_row[ind] = 0
-        
+    for ind, (row, col, ridge_max, max_row, loc, length, noise) in np.ndenumerate(peak_info):        
         #traversing down the ridge
         while ridge['from'][row, col] != -1:
+            # stop at first peak that is near the start location and not above the original maximum
             if abs(wa.time[loc] - wa.time[col]) < 10*width and not np.isclose(ridge['max'][row, col], ridge_max):
                 scale_row[ind] = row
                 scale_row_strength[ind] = ridge['cwt'][row, col]
@@ -359,8 +362,9 @@ def find_peaks_cwt(bins, width, snr, min_length_percentage = 0.4,
     # delete all that do not have expected range by estimating their uncertainty behaviour
     # coeff is tuole of 2 (steepness of a line fit, const. line fit=0)
     coeff = nppoly.polyfit(np.sqrt(wa.time[peak_info['loc']]),scales[scale_row],[1],w=peak_info['max'])
-    #print(coeff)
+
     #resulting linear fit
+    #print(coeff)
     y_scale_fit = coeff[1]*np.sqrt(wa.time)+coeff[0]
    
     # find the cwt coefficient at the nearest scale level and compare to snr
@@ -398,19 +402,22 @@ def find_peaks_cwt(bins, width, snr, min_length_percentage = 0.4,
             #else just accept the previous estimate as actual max row
             peak_info[ind]['max_row'] = scale_row[ind]
 
+    # remove all filtered peaks
     peak_info = peak_info[peak_info['row'] != -1]    
    
-    # delete not well separated peaks
+    # delete not well separated peaks (optional step)
     max_ridges = np.sort(peak_info, order="max")[::-1]
     for rdg in max_ridges:
+        # find peaks near others
         bef, idx, aft = np.searchsorted(peak_info['loc'], [rdg['loc']-peak_separation/width, rdg['loc'], rdg['loc']+peak_separation/width])
         
+        # remove the peak if larger is inside the separation range
         if bef == aft or idx == peak_info.shape[0] or peak_info[idx]['loc'] != rdg['loc']: continue
         peak_info['row'][bef:idx] = -1
         peak_info['row'][idx+1:aft] = -1
         peak_info = peak_info[peak_info['row'] != -1]
    
-    # return the mass, scales, ridge information and the peak information (including their related ridge)
+    # return the list of masses (center of the bins), scales (defined above), ridge information and the peak information including their related ridge (from the find_ridge_lines function)
     return wa.time, wa.scales, ridge, peak_info
    
 """
@@ -474,7 +481,6 @@ def find_multi_peaks(data, mass, scales, peak_info, snr, significant_peak_streng
     # sort the list of ranges where peaks should be ignored on location 
     for i in range(0, len(peak_info)):
         peak_ignore[i] = np.sort(peak_ignore[i])
-        #print(mass[peak_info[i]['loc']], peak_ignore[i][peak_ignore[i] != -1])
     
     # remove all singlehits
     data_multi = data[data['Mhit'] != 1]
@@ -547,7 +553,7 @@ new_peak_info: peak info for the bins to check for intersection
 def get_non_intersecting_peaks(base_mass, new_mass, base_scales, base_peak_info, new_peak_info):
     # loop through new peaks
     for ind, peak in enumerate(new_peak_info):    
-        #find location of nearest peak in the original list
+        # find location of nearest peak in the original list
         ins_idx = np.searchsorted(base_mass[base_peak_info['loc']], new_mass[peak['loc']])
         min_sz = np.inf
         if ins_idx != len(base_peak_info) and base_mass[base_peak_info['loc'][ins_idx]] - new_mass[peak['loc']] < min_sz: 
@@ -556,7 +562,7 @@ def get_non_intersecting_peaks(base_mass, new_mass, base_scales, base_peak_info,
             min_sz = new_mass[peak['loc']] - base_mass[base_peak_info['loc'][ins_idx-1]]
             ins_idx = ins_idx-1
         
-        # if in scale range other skip
+        # remove all peaks that are in the other list
         if min_sz < base_scales[base_peak_info['max_row'][ins_idx]]: 
             new_peak_info[ind]['row'] = -1
     
