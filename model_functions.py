@@ -20,8 +20,9 @@ def gauss_func(m, S):
 Standard APT model using Arrhenius law and approximated temperature model
 """
 def apt_model(t, t_0, B, C):
-    B = abs(B)
-    C = abs(C)
+    #B = abs(B)
+    #C = abs(C)
+    if B < 0 or C < 0: return 0
     
     valid_range = np.inf
     
@@ -63,7 +64,7 @@ def uncertain_apt_model(m, m_0, S, B, C):
     return np.roll(c, -1)
 
 """
-Alternative APT model from Ryan VanderPlas
+Alternative APT model
 """
 # FIXME: this does not work
 def nonlinear_apt_model(m, m_0, A1, B1):

@@ -345,7 +345,7 @@ def find_peaks_cwt(bins, width, snr, min_length_percentage = 0.4,
                       
     # delete all that do not have expected range by estimating their uncertainty behaviour    
     coeff = nppoly.polyfit(np.sqrt(wa.time[peak_info['loc']]),scales[scale_row],[1],w=peak_info['max'])
-    print(coeff)
+    #print(coeff)
     y_scale_fit = coeff[1]*np.sqrt(wa.time)+coeff[0]
    
     # find the cwt coefficient at the nearest scale level and compare to snr
@@ -363,7 +363,7 @@ def find_peaks_cwt(bins, width, snr, min_length_percentage = 0.4,
             tcol = ridge['from'][trow, tcol]
             trow = trow-1    
             
-        print(wa.time[loc], exp_scale, ridge_max, strength, noise) #, length, scales[trow], trow)
+        #print(wa.time[loc], exp_scale, ridge_max, strength, noise) #, length, scales[trow], trow)
        
         if strength/noise < snr:
             # delete if not significant at the expected scale level
@@ -373,9 +373,7 @@ def find_peaks_cwt(bins, width, snr, min_length_percentage = 0.4,
             # optimize if previous scale estimation step was too aggressive
             peak_info[ind]['max_row'] = trow
             peak_info[ind]['loc'] = tcol
-            pass
         else:
-            pass
             #else just accept the previous estimate as actual max row
             peak_info[ind]['max_row'] = scale_row[ind]
 
@@ -455,7 +453,7 @@ def find_multi_peaks(data, mass, scales, peak_info, snr, significant_peak_streng
     # sort the list of ranges where peaks should be ignored on location 
     for i in range(0, len(peak_info)):
         peak_ignore[i] = np.sort(peak_ignore[i])
-        print(mass[peak_info[i]['loc']], peak_ignore[i][peak_ignore[i] != -1])
+        #print(mass[peak_info[i]['loc']], peak_ignore[i][peak_ignore[i] != -1])
     
     # remove all singlehits
     data_multi = data[data['Mhit'] != 1]
@@ -464,7 +462,6 @@ def find_multi_peaks(data, mass, scales, peak_info, snr, significant_peak_streng
     mask = np.ndarray(shape=data_multi.shape, dtype=np.bool)
     mask[:] = False
 
-    print(peak_range[0], peak_range[1])
     # loop through the data
     for i, el in enumerate(data_multi):
         # only start from the actual multi hit
