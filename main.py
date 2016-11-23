@@ -10,6 +10,15 @@ CONST_GAP_BIN = 0.001
 CONST_MIN_BIN = 0
 CONST_MAX_BIN = 200
 
+import tkinter
+import tkinter.filedialog
+root = tkinter.Tk()
+root.withdraw()
+root.update()
+EPOS_FILE = tkinter.filedialog.askopenfilename()
+root.destroy()
+print("Reading", EPOS_FILE)
+
 """
 FIXME: add debug flag
 
@@ -77,4 +86,5 @@ axarr[1].scatter((mass[peak_info['loc']]), scales[peak_info['max_row']])
 for element in peak_info:
     print("Peak positions:", mass[element['loc']], "Peak strength:", element['max'])
 
+plt.xlim([CONST_MIN_BIN, CONST_MAX_BIN])
 plt.show()
