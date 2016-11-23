@@ -1,5 +1,6 @@
 # CUSTOM
-# *.pos
+*.pos
+*.epos
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
