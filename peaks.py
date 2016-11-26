@@ -159,11 +159,11 @@ def find_ridge_lines(cwt, width, left_window, right_window, gap_thresh=2,
     # define the stucture containing the ridge information and initialize it
     # the ridge structure contain a tuple with information for every combination of mass and scale
     # row is used to loop over the scales and column to loop over the masses
-    dtype = np.dtype([('cwt', np.float),  # the CWT coefficients (copy of argument cwt)
+    dtype = np.dtype([('cwt', np.float),    # the CWT coefficients (copy of argument cwt)
                       ('peak', np.bool),    # boolean array indicating if the index is a maximum at the specific mass and scale
                       ('from', np.int64),   # indiciate the column on the previous row for this ridge line (or -1 if first column)
                       ('gap', np.int64),    # difference where the peak at (row-gap,col) was last matched
-                      ('max', np.float),  # maximum CWT coefficient on the ridge line so far
+                      ('max', np.float),    # maximum CWT coefficient on the ridge line so far
                       ('loc', np.int64),    # mass location of the ridge line (the mass on the lowest scale level without optimisation)
                       ('length', np.int)])  # length of the ridge line
 
@@ -181,13 +181,13 @@ def find_ridge_lines(cwt, width, left_window, right_window, gap_thresh=2,
     last_peaks = np.empty((0), dtype=np.int32)
 
     # define and initialize final list of possible peaks (with their starting point of the ridge)
-    dtype = np.dtype([('row', np.int32),            # the row index in the list of ridges where the ridge line start (represents the index of the maximum scale level)
-                      ('col', np.int32),            # the column index in the list of ridges where the ridge line start (represents the index of mass location at the maximum scale level)
-                      ('max', np.float),          # maximum CWT coefficient on the associated ridge line (represent the strength of the peak)
-                      ('max_row', np.int32),        # scale where the maximum CWT coefficient is located (related to the best-matching window size)
-                      ('loc', np.int32),            # mass of the peak (the mass on the lowest scale level without optimisation)
-                      ('length', np.int32),         # length of the ridge line associated with the peak
-                      ('noise', np.float)])       # estimated strength of the noise around the peak
+    dtype = np.dtype([('row', np.int32),        # the row index in the list of ridges where the ridge line start (represents the index of the maximum scale level)
+                      ('col', np.int32),        # the column index in the list of ridges where the ridge line start (represents the index of mass location at the maximum scale level)
+                      ('max', np.float),        # maximum CWT coefficient on the associated ridge line (represent the strength of the peak)
+                      ('max_row', np.int32),    # scale where the maximum CWT coefficient is located (related to the best-matching window size)
+                      ('loc', np.int32),        # mass of the peak (the mass on the lowest scale level without optimisation)
+                      ('length', np.int32),     # length of the ridge line associated with the peak
+                      ('noise', np.float)])     # estimated strength of the noise around the peak
     peak_info = np.empty(cwt.shape[1], dtype=dtype)
     peak_info_idx = 0
 
@@ -397,11 +397,11 @@ def find_peaks_cwt(bins, width, snr, min_length_percentage=0.4,
             row = row-1
 
     # delete all that do not have expected range by estimating their uncertainty behaviour
-    # coeff is tuole of 2 (steepness of a line fit, const. line fit=0)
+    # coeff is tuple of 2 (steepness of a line fit, const. line fit=0)
     coeff = nppoly.polyfit(np.sqrt(wav.time[peak_info['loc']]), scales[scale_row], [1], w=peak_info['max'])
 
     #resulting linear fit
-    #print(coeff)
+    #print(coeff) 
     y_scale_fit = coeff[1]*np.sqrt(wav.time)+coeff[0]
 
     # find the cwt coefficient at the nearest scale level and compare to snr
@@ -423,9 +423,9 @@ def find_peaks_cwt(bins, width, snr, min_length_percentage=0.4,
 
             tcol = ridge['from'][trow, tcol]
             trow = trow-1
-
+            
         #print(wav.time[loc], exp_scale, ridge_max, strength, noise) #, length, scales[trow], trow)
-
+        
         #kicks out peaks that dont have enough signal at the expected scale level at this point in the mass spectrum
         if strength/noise < snr:
             # delete if not significant at the expected scale level

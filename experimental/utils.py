@@ -2,7 +2,7 @@
 Undocumented collection of utilities 
 """ 
 
-from .peaks import *
+from ..peaks import *
 
 """ 
 Find correlation lines using the ridge lines algorithm on a modified correlation histogram

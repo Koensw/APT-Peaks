@@ -48,12 +48,13 @@ Set figsize for plots to include in LaTex (correct size of labels)
 
 Based on http://bkanuka.com/articles/native-latex-plots/
 """
-def figsize(scale): 
-    fig_width_pt = 359.01668                         # Get this from LaTeX using \the\textwidth
-    inches_per_pt = 1.0/72.27                       # Convert pt to inch
-    golden_mean = 1.5*(np.sqrt(5.0)-1.0)/2.0            # Aesthetic ratio (you could change this)
+def figsize(scale, symmetric=False): 
+    fig_width_pt = 380.69788                        # Get this from LaTeX using \the\textwidth
+    inches_per_pt = 1.0/72.27                       # Convert pt to inch     
+    if symmetric: ratio = 1                         # Symmetric ratio
+    else: ratio = (np.sqrt(5.0)-1.0)/2.0            # Aesthetic ratio (you could change this)
     fig_width = fig_width_pt*inches_per_pt*scale    # width in inches
-    fig_height = fig_width*golden_mean              # height in inches
+    fig_height = fig_width*ratio                    # height in inches
     fig_size = [fig_width,fig_height]
     return fig_size
             
@@ -62,19 +63,19 @@ Create a new figure to include in LaTex
 
 Based on http://bkanuka.com/articles/native-latex-plots/
 """
-def newfig(num, width = 0.9):
+def newfig(num, width=1.0, symmetric=False):
     plt.close(num)
-    fig = plt.figure(figsize=figsize(width), num=num)
+    fig = plt.figure(figsize=figsize(width, symmetric), num=num)
     return fig
 
 """
-Save a figure in PNG format (and PDF if provided)
+Save a high definition figure in SVG format
 
 Based on http://bkanuka.com/articles/native-latex-plots/
 """
-def savefig(filename, pdf = False):
-    if pdf: plt.savefig('{}.pdf'.format(filename))
-    plt.savefig('{}.png'.format(filename), dpi=300)
+def savefig(filename):
+    plt.savefig('{}.pdf'.format(filename), dpi=1200)
+    plt.savefig('{}.png'.format(filename), dpi=600)
 
 """
 Set some optimized plotting parameters
